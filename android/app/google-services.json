@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "476439821296",
+    "project_id": "teknovative-pravyatech",
+    "storage_bucket": "teknovative-pravyatech.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:476439821296:android:ad69989de87fb06032bb35",
+        "android_client_info": {
+          "package_name": "com.pravyatech.teknovativesolution"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyB8BkE-n5F1vVdhOH9R8InabsHfiaKxo-o"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

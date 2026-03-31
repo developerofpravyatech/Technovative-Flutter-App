@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<network-security-config>
+    <!-- Allow cleartext (HTTP) traffic for all domains -->
+    <base-config cleartextTrafficPermitted="true">
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </base-config>
+    
+    <!-- Optionally, you can allow cleartext traffic for specific domains only -->
+    <!-- Uncomment and modify the following if you want to restrict to specific domains -->
+    <!--
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="true">89.116.20.244</domain>
+    </domain-config>
+    -->
+</network-security-config>
