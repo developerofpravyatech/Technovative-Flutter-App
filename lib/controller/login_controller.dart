@@ -109,15 +109,15 @@ class LoginController extends GetxController {
           dynamic res = jsonDecode(response.toString());
           if (res['responseCode'] == 200) {
             GetStorageRepository gs = GetStorageRepository(Get.find());
-            gs.write(isLoginSession, true);
-            gs.write(userNameSession, userController.text.trim());
-            gs.write(userPass, passController.text.trim());
-            gs.write(userIdSession, res["data"]["userId"]);
+            await gs.write(isLoginSession, true);
+            await gs.write(userNameSession, userController.text.trim());
+            await gs.write(userPass, passController.text.trim());
+            await gs.write(userIdSession, res["data"]["userId"]);
             String webUrl =
                 '$hostUrl/login_employee?login=${gs.read(userNameSession)}&password=${gs.read(userPass)}';
 
-            gs.write(whostUrl, webUrl);
-            gs.write(hostUrlLoginSession,
+            await gs.write(whostUrl, webUrl);
+            await gs.write(hostUrlLoginSession,
                 "${"$hostString${urlController.text.trim()}"}");
 
             debugPrint("object web url = $webUrl");
@@ -224,7 +224,7 @@ class LoginController extends GetxController {
       } catch (e) {
         debugPrint("Error getting token (attempt ${i + 1}): $e");
       }
-      
+
       // Wait before retrying (exponential backoff)
       if (i < maxRetries - 1) {
         int delayMs = 1000 * (i + 1); // 1s, 2s, 3s, 4s

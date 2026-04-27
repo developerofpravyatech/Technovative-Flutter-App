@@ -381,7 +381,7 @@ Future<void> sendLatLong(double latitude, double longitude) async {
         "action": "get_live_location",
       };
       print("Localtion==================> $data");
-      print("URL==================> ${GetStorage().read(hostUrlLoginSession)}");
+      debugPrint("API URL before call (geo/update): $url");
       try {
         final response = await dio.request(
           url,

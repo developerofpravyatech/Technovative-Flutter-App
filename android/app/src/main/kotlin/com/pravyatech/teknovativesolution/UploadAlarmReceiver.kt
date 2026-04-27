@@ -10,6 +10,24 @@ import com.pravyatech.teknovativesolution.R
 class UploadAlarmReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent?) {
         Log.e("UploadAlarmReceiver", "⏰ Alarm triggered. Uploading locations.")
+        // Ensure tracking service is running to keep collecting fresh background locations.
+        val trackingPrefs = context.getSharedPreferences("ServicePrefs", Context.MODE_PRIVATE)
+        val trackingEnabled = trackingPrefs.getBoolean("tracking_enabled", false)
+        if (trackingEnabled) {
+            try {
+                val restartIntent = Intent(context, MyForegroundService::class.java).apply {
+                    action = MyForegroundService.ACTION_START_SERVICE
+                }
+                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+                    context.startForegroundService(restartIntent)
+                } else {
+                    context.startService(restartIntent)
+                }
+                Log.d("UploadAlarmReceiver", "Service keep-alive start requested from alarm")
+            } catch (e: Exception) {
+                Log.e("UploadAlarmReceiver", "Failed to keep service alive from alarm: ${e.message}")
+            }
+        }
         
         // Check if GPS is enabled
         val locationManager = context.getSystemService(Context.LOCATION_SERVICE) as android.location.LocationManager
@@ -48,6 +66,7 @@ class UploadAlarmReceiver : BroadcastReceiver() {
                         payload.put("gps_status", "true")
                         payload.put("timestamp", java.text.SimpleDateFormat("dd-MM-yyyy HH:mm:ss", java.util.Locale.getDefault()).format(java.util.Date()))
                         android.util.Log.d("UploadAlarmReceiver", "📤 GPS status payload: $payload")
+                        android.util.Log.d("UploadAlarmReceiver", "API URL before call (GPS status): $hostUrl")
                         val url = java.net.URL(hostUrl)
                         val conn = url.openConnection() as java.net.HttpURLConnection
                         conn.requestMethod = "POST"

@@ -33,7 +33,7 @@ class _DashboardScreenState extends State<DashboardScreen>
     with WidgetsBindingObserver {
   //late WebViewController webViewController;
   bool contentLLoading = false;
-  bool isServiceStarted = true;
+  bool isServiceStarted = false;
 
   @override
   void initState() {
@@ -56,6 +56,9 @@ class _DashboardScreenState extends State<DashboardScreen>
   void didChangeAppLifecycleState(AppLifecycleState state) {
     super.didChangeAppLifecycleState(state);
     DozeModeService.handleLifecycleChange(state);
+    if (state == AppLifecycleState.resumed) {
+      checkServiceAndGpsStatus();
+    }
   }
 
   Future<void> sendUserIdToNative() async {
@@ -201,42 +204,81 @@ class _DashboardScreenState extends State<DashboardScreen>
         await Permission.locationAlways.request();
       }
     }
-    startLocationService();
-    if (mounted) setState(() => isServiceStarted = true);
+    final started = await startLocationService();
+    if (mounted) {
+      setState(() => isServiceStarted = started);
+    }
+    await checkServiceAndGpsStatus();
   }
 
-  void startLocationService() {
+  Future<bool> startLocationService() async {
     if (!Platform.isAndroid) {
       debugPrint("startLocationService: Skipped on non-Android platform");
-      return;
+      return false;
     }
 
     try {
       const platform = MethodChannel('com.pravyatech.dozeMode');
-      platform.invokeMethod('startService');
+      await platform.invokeMethod('startService');
       DozeModeService.startListening();
+      final running = await platform.invokeMethod<bool>('isServiceRunning');
+      return running ?? false;
     } on MissingPluginException catch (e) {
       debugPrint('Method channel not found: ${e.message}');
       debugPrint('Rebuild the app after package name change');
+      return false;
     } catch (e) {
       debugPrint('Error starting location service: $e');
+      return false;
     }
   }
 
-  void stopLocationService() {
+  Future<bool> stopLocationService() async {
     if (!Platform.isAndroid) {
       debugPrint("stopLocationService: Skipped on non-Android platform");
-      return;
+      return false;
     }
 
     try {
       const platform = MethodChannel('com.pravyatech.dozeMode');
-      platform.invokeMethod('stopService');
+      await platform.invokeMethod('stopService');
       DozeModeService.stopListening();
+      final running = await platform.invokeMethod<bool>('isServiceRunning');
+      return !(running ?? false);
     } on MissingPluginException catch (e) {
       debugPrint('Method channel not found: ${e.message}');
+      return false;
     } catch (e) {
       debugPrint('Error stopping location service: $e');
+      return false;
+    }
+  }
+
+  Future<void> _handleServiceToggle() async {
+    if (isServiceStarted) {
+      final stopped = await stopLocationService();
+      if (mounted) {
+        setState(() => isServiceStarted = !stopped ? isServiceStarted : false);
+      }
+      await checkServiceAndGpsStatus();
+      return;
+    }
+
+    bool gpsEnabled = false;
+    try {
+      gpsEnabled = await Geolocator.isLocationServiceEnabled();
+    } catch (e) {
+      debugPrint('Error checking GPS status: $e');
+    }
+    if (gpsEnabled) {
+      await _ensureBackgroundLocationAndStart();
+    } else {
+      Get.snackbar(
+        'GPS Required',
+        'Please enable GPS to start tracking.',
+        snackPosition: SnackPosition.BOTTOM,
+      );
+      await checkServiceAndGpsStatus();
     }
   }
 
@@ -332,30 +374,7 @@ class _DashboardScreenState extends State<DashboardScreen>
                 backgroundColor: const Color(0xff024950),
                 actions: [
                   InkWell(
-                    onTap: () async {
-                      if (isServiceStarted) {
-                        stopLocationService();
-                        setState(() {
-                          isServiceStarted = false;
-                        });
-                      } else {
-                        bool gpsEnabled = false;
-                        try {
-                          gpsEnabled =
-                              await Geolocator.isLocationServiceEnabled();
-                        } catch (e) {
-                          debugPrint('Error checking GPS status: $e');
-                        }
-                        if (gpsEnabled) {
-                          await _ensureBackgroundLocationAndStart();
-                        } else {
-                          // Show dialog or snackbar if GPS is not enabled
-                          Get.snackbar('GPS Required',
-                              'Please enable GPS to start tracking.',
-                              snackPosition: SnackPosition.BOTTOM);
-                        }
-                      }
-                    },
+                    onTap: _handleServiceToggle,
                     child: Row(
                       crossAxisAlignment: CrossAxisAlignment.center,
                       mainAxisAlignment: MainAxisAlignment.center,
@@ -368,32 +387,12 @@ class _DashboardScreenState extends State<DashboardScreen>
                             color: isServiceStarted ? Colors.red : Colors.green,
                             size: 18,
                           ),
-                          onPressed: () async {
-                            if (isServiceStarted) {
-                              stopLocationService();
-                              setState(() {
-                                isServiceStarted = false;
-                              });
-                            } else {
-                              bool gpsEnabled = false;
-                              try {
-                                gpsEnabled =
-                                    await Geolocator.isLocationServiceEnabled();
-                              } catch (e) {
-                                debugPrint('Error checking GPS status: $e');
-                              }
-                              if (gpsEnabled) {
-                                await _ensureBackgroundLocationAndStart();
-                              } else {
-                                Get.snackbar('GPS Required',
-                                    'Please enable GPS to start tracking.',
-                                    snackPosition: SnackPosition.BOTTOM);
-                              }
-                            }
-                          },
+                          onPressed: _handleServiceToggle,
                         ),
                         Text(
-                          isServiceStarted ? "Stop Tracking" : "Start Tracking",
+                          isServiceStarted
+                              ? "Stop Service"
+                              : "Start Service",
                           style: Themes.getTextStyleBoldWhite(context)
                               .copyWith(fontSize: 12),
                         ),

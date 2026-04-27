@@ -365,7 +365,7 @@ Future<void> sendLocation(
     "action": action,
   };
   print("data=> $data");
-  print("URL=> ${GetStorage().read(hostUrlLoginSession)}");
+  debugPrint("API URL before call (geo/update): $url");
   try {
     final response = await dio.request(
       url,
@@ -401,7 +401,7 @@ Future<void> crmModuleSendLocation(
     "action": action,
   };
   print("data=> $data");
-  print("URL=> ${GetStorage().read(hostUrlLoginSession)}");
+  debugPrint("API URL before call (geo/activity/crm/update): $url");
   try {
     final response = await dio.request(
       url,
@@ -437,7 +437,7 @@ Future<void> contactModuleSendLocation(
     "action": action,
   };
   print("data=> $data");
-  print("URL=> ${GetStorage().read(hostUrlLoginSession)}");
+  debugPrint("API URL before call (geo/activity/contact/update): $url");
   try {
     final response = await dio.request(
       url,

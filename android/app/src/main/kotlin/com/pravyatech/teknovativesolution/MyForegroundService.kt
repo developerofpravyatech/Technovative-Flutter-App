@@ -10,7 +10,9 @@ import android.location.LocationManager
 import android.os.Binder
 import android.os.Build
 import android.os.Bundle
+import android.os.Handler
 import android.os.IBinder
+import android.os.Looper
 import android.os.PowerManager
 import android.util.Log
 import androidx.core.app.NotificationCompat
@@ -38,6 +40,21 @@ class MyForegroundService : Service() {
     private var distanceFilter: Float = 10f // Default 10 meters
     private var alarmManager: AlarmManager? = null
     private var pendingIntent: android.app.PendingIntent? = null
+    private val prefsName = "ServicePrefs"
+    private val trackingEnabledKey = "tracking_enabled"
+    private val uploadHandler = Handler(Looper.getMainLooper())
+    private val uploadRunnable = object : Runnable {
+        override fun run() {
+            if (!isServiceRunning || !isTrackingEnabled()) return
+            try {
+                sendLocationsToServer()
+            } catch (e: Exception) {
+                Log.e(TAG, "Heartbeat upload failed: ${e.message}")
+            } finally {
+                uploadHandler.postDelayed(this, UPLOAD_INTERVAL_MS)
+            }
+        }
+    }
 
     inner class LocalBinder : Binder() {
         fun getService(): MyForegroundService = this@MyForegroundService
@@ -54,13 +71,30 @@ class MyForegroundService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        Log.d(TAG, "Service onStartCommand")
+        Log.d(TAG, "Service onStartCommand action=${intent?.action}")
         when (intent?.action) {
             ACTION_START_SERVICE -> {
+                setTrackingEnabled(true)
                 startForegroundService()
             }
             ACTION_STOP_SERVICE -> {
+                setTrackingEnabled(false)
                 stopForegroundService()
+            }
+            null -> {
+                // System may restart sticky services with null intent.
+                if (isTrackingEnabled()) {
+                    Log.d(TAG, "Null intent restart detected, restoring foreground tracking")
+                    startForegroundService()
+                } else {
+                    Log.d(TAG, "Null intent restart but tracking not enabled, not restarting")
+                }
+            }
+            else -> {
+                if (isTrackingEnabled()) {
+                    Log.d(TAG, "Unknown action but tracking enabled, restoring foreground tracking")
+                    startForegroundService()
+                }
             }
         }
         return START_STICKY
@@ -74,9 +108,22 @@ class MyForegroundService : Service() {
         super.onDestroy()
         Log.d(TAG, "Service onDestroy")
         stopLocationUpdates()
+        stopUploadHeartbeat()
         releaseWakeLock()
         cancelAlarm()
         isServiceRunning = false
+        if (isTrackingEnabled()) {
+            Log.w(TAG, "Service destroyed while tracking enabled; scheduling restart")
+            scheduleServiceRestart(this, 10_000L)
+        }
+    }
+
+    override fun onTaskRemoved(rootIntent: Intent?) {
+        super.onTaskRemoved(rootIntent)
+        Log.w(TAG, "onTaskRemoved called")
+        if (isTrackingEnabled()) {
+            scheduleServiceRestart(this, 5_000L)
+        }
     }
 
     private fun createNotificationChannel() {
@@ -97,6 +144,7 @@ class MyForegroundService : Service() {
     private fun startForegroundService() {
         if (isServiceRunning) {
             Log.d(TAG, "Service already running")
+            startUploadHeartbeat()
             return
         }
 
@@ -104,17 +152,31 @@ class MyForegroundService : Service() {
         startForeground(NOTIFICATION_ID, notification)
         startLocationUpdates()
         scheduleUploadWithAlarm(this)
+        startUploadHeartbeat()
         isServiceRunning = true
         Log.d(TAG, "Foreground service started")
     }
 
     private fun stopForegroundService() {
         stopLocationUpdates()
+        stopUploadHeartbeat()
         cancelAlarm()
         stopForeground(true)
         stopSelf()
         isServiceRunning = false
         Log.d(TAG, "Foreground service stopped")
+    }
+
+    private fun setTrackingEnabled(enabled: Boolean) {
+        getSharedPreferences(prefsName, Context.MODE_PRIVATE)
+            .edit()
+            .putBoolean(trackingEnabledKey, enabled)
+            .apply()
+    }
+
+    private fun isTrackingEnabled(): Boolean {
+        return getSharedPreferences(prefsName, Context.MODE_PRIVATE)
+            .getBoolean(trackingEnabledKey, false)
     }
 
     private fun createNotification(contentText: String): Notification {
@@ -239,6 +301,26 @@ class MyForegroundService : Service() {
         }
     }
 
+    private fun buildServerLocations(rawLocations: org.json.JSONArray, partnerId: String): org.json.JSONArray {
+        val serverLocations = org.json.JSONArray()
+        val partnerIdNumber = partnerId.toIntOrNull()
+        for (i in 0 until rawLocations.length()) {
+            val item = rawLocations.optJSONObject(i) ?: continue
+            val locationObj = JSONObject().apply {
+                put("latitude", item.optDouble("latitude"))
+                put("longitude", item.optDouble("longitude"))
+                if (partnerIdNumber != null) {
+                    put("partner_id", partnerIdNumber)
+                } else {
+                    put("partner_id", partnerId)
+                }
+                put("action", "get_live_location")
+            }
+            serverLocations.put(locationObj)
+        }
+        return serverLocations
+    }
+
     fun sendLocationsToServer() {
         if (userId.isNullOrEmpty() || apiUrl.isNullOrEmpty()) {
             Log.e(TAG, "User ID or API URL is missing")
@@ -254,16 +336,20 @@ class MyForegroundService : Service() {
                 Log.d(TAG, "No locations to send")
                 return
             }
+            val serverLocations = buildServerLocations(locationsList, userId!!)
+            if (serverLocations.length() == 0) {
+                Log.d(TAG, "No valid locations to send after payload transform")
+                return
+            }
 
             // Send locations in batch
             Thread {
                 try {
                     val payload = JSONObject().apply {
-                        put("user_id", userId)
-                        put("locations", locationsList)
-                        put("timestamp", SimpleDateFormat("dd-MM-yyyy HH:mm:ss", Locale.getDefault()).format(Date()))
+                        put("locations", serverLocations)
                     }
                     Log.d(TAG, "📤 Location update payload: ${payload}")
+                    Log.d(TAG, "Location API URL before call: $apiUrl")
 
                     val url = URL(apiUrl)
                     val conn = url.openConnection() as HttpURLConnection
@@ -291,14 +377,14 @@ class MyForegroundService : Service() {
                     if (responseCode == 200 || responseCode == 201) {
                         Log.d(
                             TAG,
-                            "✅ Location update API success | code=$responseCode | count=${locationsList.length()} | response=$responseBody"
+                            "✅ Location update API success | code=$responseCode | count=${serverLocations.length()} | response=$responseBody"
                         )
                         // Clear stored locations after successful send
                         prefs.edit().putString("stored_locations", "[]").apply()
                     } else {
                         Log.e(
                             TAG,
-                            "❌ Location update API failed | code=$responseCode | count=${locationsList.length()} | response=$responseBody"
+                            "❌ Location update API failed | code=$responseCode | count=${serverLocations.length()} | response=$responseBody"
                         )
                     }
                     conn.disconnect()
@@ -316,7 +402,7 @@ class MyForegroundService : Service() {
         const val ACTION_START_SERVICE = "com.pravyatech.teknovativesolution.START_SERVICE"
         const val ACTION_STOP_SERVICE = "com.pravyatech.teknovativesolution.STOP_SERVICE"
         private const val ALARM_REQUEST_CODE = 1001
-        private const val UPLOAD_INTERVAL_MS = 5 * 60 * 1000L // 5 minutes
+        private const val UPLOAD_INTERVAL_MS = 60 * 1000L // 1 minute
 
         private var instance: MyForegroundService? = null
 
@@ -356,19 +442,35 @@ class MyForegroundService : Service() {
                 Log.d(TAG, "Fallback uploader: no locations to send")
                 return
             }
+            val partnerIdNumber = userId.toIntOrNull()
+            val serverLocations = org.json.JSONArray()
+            for (i in 0 until locationsList.length()) {
+                val item = locationsList.optJSONObject(i) ?: continue
+                val locationObj = JSONObject().apply {
+                    put("latitude", item.optDouble("latitude"))
+                    put("longitude", item.optDouble("longitude"))
+                    if (partnerIdNumber != null) {
+                        put("partner_id", partnerIdNumber)
+                    } else {
+                        put("partner_id", userId)
+                    }
+                    put("action", "get_live_location")
+                }
+                serverLocations.put(locationObj)
+            }
+            if (serverLocations.length() == 0) {
+                Log.d(TAG, "Fallback uploader: no valid transformed locations")
+                return
+            }
 
             Thread {
                 var conn: HttpURLConnection? = null
                 try {
                     val payload = JSONObject().apply {
-                        put("user_id", userId)
-                        put("locations", locationsList)
-                        put(
-                            "timestamp",
-                            SimpleDateFormat("dd-MM-yyyy HH:mm:ss", Locale.getDefault()).format(Date())
-                        )
+                        put("locations", serverLocations)
                     }
                     Log.d(TAG, "📤 Fallback location update payload: ${payload}")
+                    Log.d(TAG, "Location API URL before call (fallback): $apiUrl")
 
                     conn = (URL(apiUrl).openConnection() as HttpURLConnection).apply {
                         requestMethod = "POST"
@@ -397,13 +499,13 @@ class MyForegroundService : Service() {
                     if (responseCode == 200 || responseCode == 201) {
                         Log.d(
                             TAG,
-                            "✅ Fallback location update success | code=$responseCode | count=${locationsList.length()} | response=$responseBody"
+                            "✅ Fallback location update success | code=$responseCode | count=${serverLocations.length()} | response=$responseBody"
                         )
                         locationPrefs.edit().putString("stored_locations", "[]").apply()
                     } else {
                         Log.e(
                             TAG,
-                            "❌ Fallback location update failed | code=$responseCode | count=${locationsList.length()} | response=$responseBody"
+                            "❌ Fallback location update failed | code=$responseCode | count=${serverLocations.length()} | response=$responseBody"
                         )
                     }
                 } catch (e: Exception) {
@@ -475,6 +577,38 @@ class MyForegroundService : Service() {
                 }
             }
         }
+
+        fun scheduleServiceRestart(context: Context, delayMs: Long = 10_000L) {
+            val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
+            val restartIntent = Intent(context, MyForegroundService::class.java).apply {
+                action = ACTION_START_SERVICE
+            }
+            val restartPendingIntent = PendingIntent.getService(
+                context,
+                2002,
+                restartIntent,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
+            val triggerAt = System.currentTimeMillis() + delayMs
+            try {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                    alarmManager.setExactAndAllowWhileIdle(
+                        AlarmManager.RTC_WAKEUP,
+                        triggerAt,
+                        restartPendingIntent
+                    )
+                } else {
+                    alarmManager.setExact(
+                        AlarmManager.RTC_WAKEUP,
+                        triggerAt,
+                        restartPendingIntent
+                    )
+                }
+                Log.d(TAG, "Scheduled service restart at ${Date(triggerAt)}")
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to schedule service restart: ${e.message}")
+            }
+        }
     }
 
     private fun loadPreferences() {
@@ -540,6 +674,17 @@ class MyForegroundService : Service() {
             it.cancel(pendingIntent)
             Log.d(TAG, "Alarm cancelled")
         }
+    }
+
+    private fun startUploadHeartbeat() {
+        uploadHandler.removeCallbacks(uploadRunnable)
+        uploadHandler.postDelayed(uploadRunnable, UPLOAD_INTERVAL_MS)
+        Log.d(TAG, "Upload heartbeat started")
+    }
+
+    private fun stopUploadHeartbeat() {
+        uploadHandler.removeCallbacks(uploadRunnable)
+        Log.d(TAG, "Upload heartbeat stopped")
     }
 
     init {

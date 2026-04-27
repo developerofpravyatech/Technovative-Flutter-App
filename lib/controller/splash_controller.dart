@@ -37,7 +37,9 @@ class SplashController extends GetxController
 
   _launchPage() async {
     await Future.delayed(const Duration(seconds: 3)).then((value) {
-      if (storageRepository.read(isLoginSession) == true) {
+      final isLoggedIn = storageRepository.hasData(isLoginSession) &&
+          storageRepository.read(isLoginSession) == true;
+      if (isLoggedIn) {
         Get.offAll(DashboardScreen(
           webHostUrl: storageRepository.read(whostUrl),
         ));

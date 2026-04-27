@@ -77,6 +77,22 @@ class DioHelper {
       //FEATURE DATA
       // (_dio.transformer as BackgroundTransformer).jsonDecodeCallback = parseJson;
 
+      final Uri requestLogUri = path.isEmpty
+          ? Uri.parse(baseUrl)
+          : Uri.parse(baseUrl).resolve(path);
+      final qp = queryParameters;
+      final Uri urlForLog = (qp != null && qp.isNotEmpty)
+          ? requestLogUri.replace(
+              queryParameters: {
+                for (final MapEntry<String, dynamic> e in qp.entries)
+                  e.key: e.value?.toString() ?? '',
+              },
+            )
+          : requestLogUri;
+      debugPrint(
+        'API URL before call | method=${_apiTypeCollection[apiTypeEnum]} | $urlForLog',
+      );
+
       var response = await _dio.request(
         path,
         data: data,
