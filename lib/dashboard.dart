@@ -35,12 +35,45 @@ class _DashboardScreenState extends State<DashboardScreen>
   bool contentLLoading = false;
   bool isServiceStarted = false;
 
+  Future<void> _injectOdooSessionAndLoad(
+      InAppWebViewController controller) async {
+    final box = GetStorage();
+    final host = box.read(hostUrlLoginSession)?.toString();
+    final sessionId = box.read(odooSessionId)?.toString();
+    final target = widget.webHostUrl ??
+        (host != null && host.isNotEmpty ? '$host/web' : null);
+
+    if (host != null &&
+        host.isNotEmpty &&
+        sessionId != null &&
+        sessionId.isNotEmpty) {
+      try {
+        await CookieManager.instance().setCookie(
+          url: WebUri(host),
+          name: 'session_id',
+          value: sessionId,
+          path: '/',
+          isHttpOnly: true,
+        );
+        debugPrint('Injected Odoo session_id cookie for $host');
+      } catch (e) {
+        debugPrint('Failed to inject Odoo session cookie: $e');
+      }
+    }
+
+    if (target != null && target.isNotEmpty) {
+      await controller.loadUrl(
+        urlRequest: URLRequest(url: WebUri.uri(Uri.parse(target))),
+      );
+    }
+  }
+
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     // Start the background service
-    sendUserIdToNative();
+    sendUserIdToNative(); 
     checkServiceAndGpsStatus();
     startBackgroundService();
   }
@@ -406,16 +439,13 @@ class _DashboardScreenState extends State<DashboardScreen>
                 children: [
                   Column(
                     children: [
-                      Expanded(
+                      Expanded( 
                         child: InAppWebView(
-                          onWebViewCreated: (controller) {
+                          onWebViewCreated: (controller) async {
                             webViewController = controller;
-                            if (widget.webHostUrl != null) {
-                              controller.loadUrl(
-                                  urlRequest: URLRequest(
-                                      url: WebUri.uri(
-                                          Uri.parse(widget.webHostUrl!))));
-                            }
+                            // Inject session cookie before first navigation so
+                            // /web opens already authenticated (iOS + Android).
+                            await _injectOdooSessionAndLoad(controller);
                           },
                           shouldOverrideUrlLoading:
                               (controller, navigationAction) async {
@@ -487,14 +517,19 @@ class _DashboardScreenState extends State<DashboardScreen>
                                 "WebView HTTP error: ${response.statusCode}");
                             debugPrint("Failed URL: ${request.url}");
                             setState(() => contentLLoading = false);
-                            Get.snackbar(
-                              'HTTP Error',
-                              'HTTP ${response.statusCode}: ${response.reasonPhrase}',
-                              snackPosition: SnackPosition.BOTTOM,
-                            );
+                            // Avoid noisy snackbars for expected redirects/404s.
+                            if (response.statusCode != null &&
+                                response.statusCode! >= 500) {
+                              Get.snackbar(
+                                'HTTP Error',
+                                'HTTP ${response.statusCode}: ${response.reasonPhrase}',
+                                snackPosition: SnackPosition.BOTTOM,
+                              );
+                            }
                           },
+                          // Load after cookie injection in onWebViewCreated.
                           initialUrlRequest: URLRequest(
-                              url: WebUri.uri(Uri.parse(widget.webHostUrl!))),
+                              url: WebUri.uri(Uri.parse('about:blank'))),
                           initialSettings: InAppWebViewSettings(
                               enableViewportScale: true,
                               javaScriptEnabled: true,
@@ -506,6 +541,8 @@ class _DashboardScreenState extends State<DashboardScreen>
                               verticalScrollBarEnabled: false,
                               allowsLinkPreview: true,
                               allowsInlineMediaPlayback: true,
+                              sharedCookiesEnabled: true,
+                              thirdPartyCookiesEnabled: true,
                               preferredContentMode:
                                   UserPreferredContentMode.MOBILE),
                           onGeolocationPermissionsShowPrompt:

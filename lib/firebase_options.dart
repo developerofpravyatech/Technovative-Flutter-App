@@ -17,7 +17,10 @@ import 'package:flutter/foundation.dart'
 class DefaultFirebaseOptions {
   static FirebaseOptions get currentPlatform {
     if (kIsWeb) {
-      return web;
+      throw UnsupportedError(
+        'DefaultFirebaseOptions have not been configured for web - '
+        'you can reconfigure this by running the FlutterFire CLI again.',
+      );
     }
     switch (defaultTargetPlatform) {
       case TargetPlatform.android:
@@ -27,7 +30,10 @@ class DefaultFirebaseOptions {
       case TargetPlatform.macOS:
         return macos;
       case TargetPlatform.windows:
-        return windows;
+        throw UnsupportedError(
+          'DefaultFirebaseOptions have not been configured for windows - '
+          'you can reconfigure this by running the FlutterFire CLI again.',
+        );
       case TargetPlatform.linux:
         throw UnsupportedError(
           'DefaultFirebaseOptions have not been configured for linux - '
@@ -40,50 +46,30 @@ class DefaultFirebaseOptions {
     }
   }
 
-  static const FirebaseOptions web = FirebaseOptions(
-    apiKey: 'AIzaSyCukkTQc2p8dAhXeLuDWoxscxlNiqg0SP0',
-    appId: '1:267874796422:web:b9c924b0cf13397a4f2207',
-    messagingSenderId: '267874796422',
-    projectId: 'teknovative-5e81b',
-    authDomain: 'teknovative-5e81b.firebaseapp.com',
-    storageBucket: 'teknovative-5e81b.firebasestorage.app',
-    measurementId: 'G-WSEE31BM5G',
-  );
-
   static const FirebaseOptions android = FirebaseOptions(
-    apiKey: 'AIzaSyCSPdJ94Sc77y7Xrp0U8RDax4bYFe-0IUQ',
-    appId: '1:267874796422:android:ea060041343d25294f2207',
-    messagingSenderId: '267874796422',
-    projectId: 'teknovative-5e81b',
-    storageBucket: 'teknovative-5e81b.firebasestorage.app',
+    apiKey: 'AIzaSyB8BkE-n5F1vVdhOH9R8InabsHfiaKxo-o',
+    appId: '1:476439821296:android:ad69989de87fb06032bb35',
+    messagingSenderId: '476439821296',
+    projectId: 'teknovative-pravyatech',
+    storageBucket: 'teknovative-pravyatech.firebasestorage.app',
   );
 
   static const FirebaseOptions ios = FirebaseOptions(
-    apiKey: 'AIzaSyAJuodhUxQk_WQuHG6jF9RQn7nX4iJAecs',
-    appId: '1:267874796422:ios:a3870cdc572032574f2207',
-    messagingSenderId: '267874796422',
-    projectId: 'teknovative-5e81b',
-    storageBucket: 'teknovative-5e81b.firebasestorage.app',
+    apiKey: 'AIzaSyBuebiKxLEOIUHE20j-EOx0oBIuEFREwxo',
+    appId: '1:476439821296:ios:c92e894f22bcc13332bb35',
+    messagingSenderId: '476439821296',
+    projectId: 'teknovative-pravyatech',
+    storageBucket: 'teknovative-pravyatech.firebasestorage.app',
     iosBundleId: 'com.pravyatech.teknovativesolution',
   );
 
   static const FirebaseOptions macos = FirebaseOptions(
-    apiKey: 'AIzaSyAJuodhUxQk_WQuHG6jF9RQn7nX4iJAecs',
-    appId: '1:267874796422:ios:fc3f0421311617ee4f2207',
-    messagingSenderId: '267874796422',
-    projectId: 'teknovative-5e81b',
-    storageBucket: 'teknovative-5e81b.firebasestorage.app',
+    apiKey: 'AIzaSyBuebiKxLEOIUHE20j-EOx0oBIuEFREwxo',
+    appId: '1:476439821296:ios:c92e894f22bcc13332bb35',
+    messagingSenderId: '476439821296',
+    projectId: 'teknovative-pravyatech',
+    storageBucket: 'teknovative-pravyatech.firebasestorage.app',
     iosBundleId: 'com.example.teknovativePravyatechApp',
-  );
-
-  static const FirebaseOptions windows = FirebaseOptions(
-    apiKey: 'AIzaSyCukkTQc2p8dAhXeLuDWoxscxlNiqg0SP0',
-    appId: '1:267874796422:web:4113b4ce24c5f2974f2207',
-    messagingSenderId: '267874796422',
-    projectId: 'teknovative-5e81b',
-    authDomain: 'teknovative-5e81b.firebaseapp.com',
-    storageBucket: 'teknovative-5e81b.firebasestorage.app',
-    measurementId: 'G-BSNFWLHFXQ',
   );
 
 }

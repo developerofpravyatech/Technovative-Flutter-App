@@ -18,6 +18,8 @@ const String token = '1136718e-45d0-4e88-a3c4-f82d8c616d54';
 const String userCollectionName = 'users';
 const String hostUrlLoginSession = 'hostUrlLoginSession';
 const String whostUrl = 'hostUrl',userPass='password';
+const String odooSessionId = 'odooSessionId';
+const String odooDbSession = 'odooDb';
 
 //const userId = 'AzrSaqQHokT0hApBfxGiUe6Bn0m2';
 

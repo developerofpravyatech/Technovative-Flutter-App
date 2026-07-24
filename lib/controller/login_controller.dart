@@ -10,6 +10,7 @@ import '../resources/session_string.dart';
 import '../shared/api_repository.dart';
 import '../shared/get_storage_repository.dart';
 import '../shared/network_info.dart';
+import '../shared/odoo_web_auth.dart';
 import '../shared/common/state_status.dart';
 
 class LoginController extends GetxController {
@@ -51,6 +52,9 @@ class LoginController extends GetxController {
   }
 
   void loginApiCall() {
+    if (_stateStatusRx.value == StateStatus.LOADING) {
+      return;
+    }
     networkInfo.isConnected().then((value) async {
       if (value) {
         _stateStatusRx.value = StateStatus.LOADING;
@@ -104,27 +108,53 @@ class LoginController extends GetxController {
         }, headers: {
           'Cookie': 'session_id=c5a7fe5af5aa4b5940c4365a1592702650a6fed8'
         }, success: (response) async {
-          _stateStatusRx.value = StateStatus.SUCCESS;
-          //var result = LoginResponseEntity.fromJson(response);
+          // Keep LOADING until navigation (includes Odoo web session auth).
           dynamic res = jsonDecode(response.toString());
           if (res['responseCode'] == 200) {
             GetStorageRepository gs = GetStorageRepository(Get.find());
+            final login = userController.text.trim();
+            final password = passController.text.trim();
             await gs.write(isLoginSession, true);
-            await gs.write(userNameSession, userController.text.trim());
-            await gs.write(userPass, passController.text.trim());
+            await gs.write(userNameSession, login);
+            await gs.write(userPass, password);
             await gs.write(userIdSession, res["data"]["userId"]);
-            String webUrl =
-                '$hostUrl/login_employee?login=${gs.read(userNameSession)}&password=${gs.read(userPass)}';
+            await gs.write(hostUrlLoginSession, hostUrl);
 
+            // Resolve DB from API (needed for Odoo web session auth).
+            String? db;
+            final dbList = res["data"]?["db_list"];
+            if (dbList is List && dbList.isNotEmpty) {
+              db = dbList.first.toString();
+            }
+            db ??= database.value.isNotEmpty ? database.value : null;
+            if (db != null) {
+              await gs.write(odooDbSession, db);
+            }
+
+            // Create a real Odoo web session so WebView opens already logged in.
+            // (login_employee is a custom route and returns 404 on some hosts.)
+            String? sessionId;
+            if (db != null && db.isNotEmpty) {
+              sessionId = await OdooWebAuth.authenticate(
+                hostUrl: hostUrl,
+                db: db,
+                login: login,
+                password: password,
+              );
+            }
+            if (sessionId != null && sessionId.isNotEmpty) {
+              await gs.write(odooSessionId, sessionId);
+            }
+
+            final webUrl = '$hostUrl/web';
             await gs.write(whostUrl, webUrl);
-            await gs.write(hostUrlLoginSession,
-                "${"$hostString${urlController.text.trim()}"}");
 
-            debugPrint("object web url = $webUrl");
-            await Get.offAll(DashboardScreen(
-                webHostUrl:
-                    '$hostUrl/login_employee?login=${gs.read(userNameSession)}&password=${gs.read(userPass)}'));
+            debugPrint(
+                "object web url = $webUrl | session=${sessionId != null}");
+            _stateStatusRx.value = StateStatus.SUCCESS;
+            await Get.offAll(DashboardScreen(webHostUrl: webUrl));
           } else {
+            _stateStatusRx.value = StateStatus.FAILURE;
             showErrorSnackbar(res["responseMessage"]);
           }
         }, error: (e) {
@@ -132,6 +162,7 @@ class LoginController extends GetxController {
           Get.showErrorSnackbar(e!.message);
         });
       } else {
+        _stateStatusRx.value = StateStatus.FAILURE;
         Get.showErrorSnackbar('No internet connect');
       }
     });

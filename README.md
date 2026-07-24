@@ -1,16 +1,60 @@
-# teknovative_pravyatech_app
+# Technovative Flutter App
 
-A new Flutter project.
+Flutter mobile app for **Technovative / PravyaTech**, wrapping the Odoo CRM web experience in a native shell with login, WebView dashboard, Firebase messaging, and location services.
 
-## Getting Started
+Repository: [Technovative-Flutter-App](https://github.com/developerofpravyatech/Technovative-Flutter-App)
 
-This project is a starting point for a Flutter application.
+## Features
 
-A few resources to get you started if this is your first Flutter project:
+- Flutter login against the hosted Odoo `/users` API
+- Single-login WebView session via Odoo `/web/session/authenticate` + cookie injection (Android & iOS)
+- In-app WebView dashboard (`flutter_inappwebview`)
+- Firebase Cloud Messaging
+- Background / foreground location support (Android)
 
-- [Lab: Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)
-- [Cookbook: Useful Flutter samples](https://docs.flutter.dev/cookbook)
+## Requirements
 
-For help getting started with Flutter development, view the
-[online documentation](https://docs.flutter.dev/), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.
+- Flutter SDK (3.x recommended)
+- Xcode (for iOS)
+- Android Studio / Android SDK (for Android)
+- CocoaPods (iOS)
+
+## Getting started
+
+```bash
+git clone https://github.com/developerofpravyatech/Technovative-Flutter-App.git
+cd Technovative-Flutter-App
+flutter pub get
+cd ios && pod install && cd ..
+flutter run
+```
+
+### iOS
+
+```bash
+flutter run -d <ios-device-id>
+```
+
+### Android
+
+```bash
+flutter run -d <android-device-id>
+```
+
+## Project structure
+
+| Path | Description |
+|------|-------------|
+| `lib/login.dart` | Flutter login UI |
+| `lib/controller/login_controller.dart` | Login API + Odoo web session |
+| `lib/shared/odoo_web_auth.dart` | Odoo `/web/session/authenticate` helper |
+| `lib/dashboard.dart` | WebView dashboard + cookie injection |
+| `lib/controller/splash_controller.dart` | Cold-start session refresh |
+
+## Version
+
+Current app version is defined in `pubspec.yaml` (`1.0.5+5`).
+
+## License
+
+Private / proprietary — PravyaTech / Technovative.

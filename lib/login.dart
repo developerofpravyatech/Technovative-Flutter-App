@@ -180,55 +180,61 @@ class LoginScreen extends GetView<LoginController> {
                                         ))),
                                     SizedBox(height: 40.dynamicHeight()),
                                     Center(
-                                      child: InkWell(
-                                        onTap: () {
-                                          //http://195.35.21.190:8080/web/login
-                                          debugPrint("Auth res : ");
-                                          // http://195.35.21.190:8080/web#action=123&cids=1&menu_id=81
-                                          // final client =
-                                          //     OdooClient("http://195.35.21.190:8080");
-                                          // try {
-                                          //   await client.authenticate(
-                                          //       "tek17", "admin", "admin@123");
-                                          //   final res = await client.callRPC(
-                                          //       '/web/session/modules', 'call', {});
-                                          //   debugPrint('Installed modules: \n$res');
-                                          // } on OdooException catch (e) {
-                                          //   debugPrint("object error : ${e.message}");
-                                          //   client.close();
-                                          // }
-                                          controller.loginApiCall();
-                                        },
-                                        child: Container(
-                                          alignment: Alignment.center,
-                                          height: 50.dynamicHeight(),
-                                          width:
-                                          MediaQuery.sizeOf(context).width *
-                                              0.7,
-                                          decoration: BoxDecoration(
-                                              borderRadius:
-                                              BorderRadius.circular(10),
-                                              gradient: const LinearGradient(
-                                                begin: Alignment.centerLeft,
-                                                end: Alignment.centerRight,
-                                                stops: [0.0, 0.5, 1.0],
-                                                colors: [
-                                                  Color(0xffea8372),
-                                                  Color(0xffaf819d),
-                                                  Color(0xff6d7cbd),
-                                                ],
-                                              )),
-                                          // padding: appPadding20,
-                                          child: Text("Login",
-                                              style:
-                                              Themes.getTextStyle(context)
-                                                  .copyWith(
-                                                  color: whiteColor,
-                                                  fontSize: 20,
-                                                  fontWeight:
-                                                  FontWeight.w600)),
-                                        ),
-                                      ),
+                                      child: Obx(() {
+                                        final isLoading = controller
+                                                .stateStatus ==
+                                            StateStatus.LOADING;
+                                        return InkWell(
+                                          onTap: isLoading
+                                              ? null
+                                              : () {
+                                                  debugPrint("Auth res : ");
+                                                  controller.loginApiCall();
+                                                },
+                                          child: Container(
+                                            alignment: Alignment.center,
+                                            height: 50.dynamicHeight(),
+                                            width: MediaQuery.sizeOf(context)
+                                                    .width *
+                                                0.7,
+                                            decoration: BoxDecoration(
+                                                borderRadius:
+                                                    BorderRadius.circular(10),
+                                                gradient:
+                                                    const LinearGradient(
+                                                  begin: Alignment.centerLeft,
+                                                  end: Alignment.centerRight,
+                                                  stops: [0.0, 0.5, 1.0],
+                                                  colors: [
+                                                    Color(0xffea8372),
+                                                    Color(0xffaf819d),
+                                                    Color(0xff6d7cbd),
+                                                  ],
+                                                )),
+                                            child: isLoading
+                                                ? const SizedBox(
+                                                    height: 24,
+                                                    width: 24,
+                                                    child:
+                                                        CircularProgressIndicator(
+                                                      strokeWidth: 2.5,
+                                                      color: Colors.white,
+                                                    ),
+                                                  )
+                                                : Text(
+                                                    "Login",
+                                                    style: Themes.getTextStyle(
+                                                            context)
+                                                        .copyWith(
+                                                            color: whiteColor,
+                                                            fontSize: 20,
+                                                            fontWeight:
+                                                                FontWeight
+                                                                    .w600),
+                                                  ),
+                                          ),
+                                        );
+                                      }),
                                     )
                                   ],
                                 ),
@@ -429,12 +435,6 @@ class LoginScreen extends GetView<LoginController> {
                     ),
                   ),
                 ),
-                Visibility(
-                    visible:
-                    controller.stateStatus.obs == StateStatus.LOADING.obs
-                        ? true
-                        : false,
-                    child: const Center(child: CircularProgressIndicator()))
               ],
             ),
           ),

@@ -34,11 +34,17 @@ import 'dependency_injection.dart';
 import 'firebase_options.dart';
 import 'shared/background_location_disclosure.dart';
 
+Future<void> _ensureFirebaseInitialized() async {
+  if (Firebase.apps.isEmpty) {
+    await Firebase.initializeApp(
+      options: DefaultFirebaseOptions.currentPlatform,
+    );
+  }
+}
+
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  await Firebase.initializeApp(
-    options: DefaultFirebaseOptions.currentPlatform,
-  );
+  await _ensureFirebaseInitialized();
 
   // Initialize GetStorage after Firebase
   await Get.putAsync(() => GetStorage.init());
@@ -55,15 +61,9 @@ Future<void> main() async {
 
 @pragma('vm:entry-point')
 Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
+  WidgetsFlutterBinding.ensureInitialized();
   debugPrint("Background message received: ${message.data}");
-  // Initialize Firebase in the background isolate if not already initialized
-  try {
-    await Firebase.initializeApp();
-    debugPrint("Firebase initialized in background handler");
-  } catch (e) {
-    debugPrint("Error initializing Firebase in background handler: $e");
-    // If already initialized, this will throw an error, which is fine
-  }
+  await _ensureFirebaseInitialized();
 }
 
 class MyApp extends StatefulWidget {
