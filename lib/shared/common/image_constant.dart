@@ -15,9 +15,13 @@ class ImageConstant {
 
   static String whatsappImg = 'assets/whatsapp_img.png';
 
-  static String finalAppImg = 'assets/finalAppLogo.png';
+  static String finalAppImg = 'assets/appLogo.png';
+
+  static String appLogo = 'assets/appLogo.png';
+
+  static String splashLogo = 'assets/tvs_logo_full.png';
 
   static String iconQuestionMark = 'assets/question-mark.svg';
 
   static String exlementionMarkImg = 'assets/exlemention_mark.png';
-}
+} 
