@@ -399,6 +399,10 @@ class _DashboardScreenState extends State<DashboardScreen>
             durationUntilAlertAgain: const Duration(days: 1)),
         child: WillPopScope(
           onWillPop: () async {
+            if (webViewController != null && await webViewController!.canGoBack()) {
+              await webViewController!.goBack();
+              return false;
+            }
             return (await showConfirmationDialog()) == true;
           },
           child: Scaffold(
@@ -531,6 +535,7 @@ class _DashboardScreenState extends State<DashboardScreen>
                           initialUrlRequest: URLRequest(
                               url: WebUri.uri(Uri.parse('about:blank'))),
                           initialSettings: InAppWebViewSettings(
+                              allowsBackForwardNavigationGestures: true,
                               enableViewportScale: true,
                               javaScriptEnabled: true,
                               pageZoom: 1,
