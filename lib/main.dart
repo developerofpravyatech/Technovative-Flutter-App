@@ -33,6 +33,7 @@ import 'package:background_locator_2/settings/locator_settings.dart'
 import 'dependency_injection.dart';
 import 'firebase_options.dart';
 import 'shared/background_location_disclosure.dart';
+import 'shared/get_storage_repository.dart';
 
 Future<void> _ensureFirebaseInitialized() async {
   if (Firebase.apps.isEmpty) {
@@ -116,8 +117,7 @@ class _MyAppState extends State<MyApp> {
           await updateUI(data);
         },
       );
-      // Initialize BackgroundLocator after a longer delay to ensure app is fully loaded
-      // This prevents crashes during splash screen
+      // Initialize BackgroundLocator after a delay to ensure app is fully loaded
       Future.delayed(const Duration(seconds: 3), () {
         if (mounted) {
           initPlatformState();
@@ -354,14 +354,18 @@ class _MyAppState extends State<MyApp> {
   // This widget is the root of your application.
   @override
   Widget build(BuildContext context) {
+    final storageRepository = Get.find<GetStorageRepository>();
+    final isLoggedIn = storageRepository.hasData(isLoginSession) &&
+        storageRepository.read(isLoginSession) == true;
+
     return GetMaterialApp(
-      title: 'Teknovative Solution',
+      title: 'ERP APP',
       theme: Themes.getTheme(context),
       debugShowCheckedModeBanner: false,
-      initialRoute: AppRoute.splash,
+      initialRoute: isLoggedIn ? AppRoute.home : AppRoute.login,
       getPages: AppPage.routes,
     );
-  }
+  } 
 }
 
 Future<void> sendLatLong(double latitude, double longitude) async {

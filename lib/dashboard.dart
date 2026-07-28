@@ -17,6 +17,7 @@ import 'package:geolocator/geolocator.dart';
 import 'doze_mode_service.dart';
 import 'shared/background_location_disclosure.dart';
 import 'shared/common/image_constant.dart';
+import 'shared/odoo_web_auth.dart';
 
 // ignore: must_be_immutable
 InAppWebViewController? webViewController;
@@ -39,7 +40,30 @@ class _DashboardScreenState extends State<DashboardScreen>
       InAppWebViewController controller) async {
     final box = GetStorage();
     final host = box.read(hostUrlLoginSession)?.toString();
-    final sessionId = box.read(odooSessionId)?.toString();
+    final login = box.read(userNameSession)?.toString();
+    final password = box.read(userPass)?.toString();
+    final db = box.read(odooDbSession)?.toString();
+    String? sessionId = box.read(odooSessionId)?.toString();
+
+    // Authenticate Odoo web session on cold start if credentials are available
+    if (host != null &&
+        host.isNotEmpty &&
+        login != null &&
+        password != null &&
+        db != null &&
+        db.isNotEmpty) {
+      final newSessionId = await OdooWebAuth.authenticate(
+        hostUrl: host,
+        db: db,
+        login: login,
+        password: password,
+      );
+      if (newSessionId != null && newSessionId.isNotEmpty) {
+        sessionId = newSessionId;
+        await box.write(odooSessionId, sessionId);
+      }
+    }
+
     final target = widget.webHostUrl ??
         (host != null && host.isNotEmpty ? '$host/web' : null);
 
