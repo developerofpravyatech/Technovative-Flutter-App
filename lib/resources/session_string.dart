@@ -25,3 +25,4 @@ const String odooDbSession = 'odooDb';
 
 const String tokenKey = 'tokenKey';
 const String UserType = 'UserType';
+const String isNativeAnalyticsSession = 'isNativeAnalytics';

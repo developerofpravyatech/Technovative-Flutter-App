@@ -13,7 +13,7 @@ class OdooWebAuth {
     required String db,
     required String login,
     required String password,
-  }) async {
+  }) async {  
     try {
       final dio = Dio(
         BaseOptions(
@@ -33,15 +33,19 @@ class OdooWebAuth {
         };
       }
 
+      final Map<String, dynamic> params = {
+        'login': login,
+        'password': password,
+      };
+      if (db.isNotEmpty) {
+        params['db'] = db;
+      }
+
       final response = await dio.post(
         '$hostUrl/web/session/authenticate',
         data: {
           'jsonrpc': '2.0',
-          'params': {
-            'db': db,
-            'login': login,
-            'password': password,
-          },
+          'params': params,
         },
       );
 

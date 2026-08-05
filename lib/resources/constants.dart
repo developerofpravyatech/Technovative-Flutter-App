@@ -109,25 +109,29 @@ setDropDownDecoratorProps(String hinttext,
 }
 
 Widget whiteButton(String text, Function fun,
-    {double? bHeight, double? bWidth}) {
+    {double? bHeight, double? bWidth, double? fontSize}) {
   return SizedBox(
     width: bWidth ?? Get.width * 0.9,
     height: bHeight ?? 60,
     child: ElevatedButton(
       style: ElevatedButton.styleFrom(
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 0),
           foregroundColor: whiteColor,
           backgroundColor: whiteColor,
           elevation: 1,
-          side: BorderSide(color: Color(0xff024950), width: 1.5)),
+          shape: RoundedRectangleBorder(borderRadius: borderRadius17),
+          side: const BorderSide(color: Color(0xff024950), width: 1.5)),
       onPressed: () async {
         fun();
       },
       child: Center(
           child: Text(text,
-              style:const TextStyle(
-                  fontSize: 16,
-                  color:  Color(0xff024950),
-                  fontWeight: FontWeight.w500))),
+              maxLines: 1,
+              softWrap: false,
+              style: TextStyle(
+                  fontSize: fontSize ?? 14,
+                  color: const Color(0xff024950),
+                  fontWeight: FontWeight.w600))),
     ),
   );
 }
@@ -143,6 +147,7 @@ Widget blueButton(String text, Function fun,
       height: bHeight ?? 60,
       child: ElevatedButton(
         style: ElevatedButton.styleFrom(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 0),
             foregroundColor: whiteColor,
             backgroundColor: color ?? colorText1,
             shape: RoundedRectangleBorder(borderRadius: borderRadius17)),
@@ -151,9 +156,11 @@ Widget blueButton(String text, Function fun,
         },
         child: Center(
             child: Text(text,
+                maxLines: 1,
+                softWrap: false,
                 style: TextStyle(
-                    fontSize: fontSize ?? 17,
+                    fontSize: fontSize ?? 14,
                     color: textColor ?? whiteColor,
-                    fontWeight: FontWeight.w500))),
+                    fontWeight: FontWeight.w600))),
       ));
 }
