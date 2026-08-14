@@ -374,35 +374,42 @@ Future<void> sendLatLong(double latitude, double longitude) async {
   if (isLocationServiceEnabled) {
     if (GetStorage().hasData(isLoginSession) == true) {
       final Dio dio = Dio();
-      String url = '${GetStorage().read(hostUrlLoginSession)}/geo/update';
-      var headers = {
-        'Cookie': 'session_id=c5a7fe5af5aa4b5940c4365a1592702650a6fed8'
-      };
+      final hostUrl = GetStorage().read(hostUrlLoginSession) ?? 'https://app.teknovative.com';
+      String url = '$hostUrl/geo/update';
+      final userId = GetStorage().read(userIdSession);
+      final sessionId = GetStorage().read(odooSessionId);
+      
+      var headers = <String, String>{};
+      if (sessionId != null && sessionId.toString().isNotEmpty) {
+        headers['Cookie'] = 'session_id=$sessionId';
+      }
+
       final Map<String, dynamic> data = {
         "latitude": latitude,
         "longitude": longitude,
-        "partner_id": GetStorage().read(userIdSession),
+        "partner_id": userId,
         "action": "get_live_location",
       };
-      print("Localtion==================> $data");
+      debugPrint("Live GPS Tracking Payload (User ID: $userId) =====> $data");
       debugPrint("API URL before call (geo/update): $url");
       try {
         final response = await dio.request(
           url,
           options: Options(
             method: 'POST',
-            headers: headers,
+            headers: headers.isNotEmpty ? headers : null,
+            validateStatus: (status) => true,
           ),
           data: jsonEncode(data),
         );
         if (response.statusCode == 200) {
           debugPrint(
-              "Response Data ===============: ${json.encode(response.data)}");
+              "GPS Tracking Response Data ===============: ${json.encode(response.data)}");
         } else {
-          debugPrint("Error: ${response.statusMessage}");
+          debugPrint("GPS Tracking Error: ${response.statusMessage}");
         }
       } catch (e) {
-        debugPrint("Exception: $e");
+        debugPrint("GPS Tracking Exception: $e");
       }
     }
   } else {

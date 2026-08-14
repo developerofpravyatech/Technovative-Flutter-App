@@ -49,50 +49,10 @@ class LoginController extends GetxController {
     dbFocus = FocusNode();
     urlFocus = FocusNode();
     passFocus = FocusNode();
-
-    userController.addListener(() {
-      final text = userController.text.trim().toLowerCase();
-      if (text == 'dhaval@gmail.com' || text == 'dhaval') {
-        if (passController.text.isEmpty) {
-          passController.text = 'dhaval';
-        }
-      }
-    });
   }
 
   void loginApiCall() {
     if (_stateStatusRx.value == StateStatus.LOADING) {
-      return;
-    }
-
-    final loginInput = userController.text.trim();
-    final passwordInput = passController.text.trim();
-    final loginLower = loginInput.toLowerCase();
-
-    // Apple App Store review credentials / test account check
-    bool isReviewUser = loginLower == 'dhaval@gmail.com' ||
-        loginLower == 'dhaval' ||
-        loginLower.contains('apple') ||
-        loginLower.contains('reviewer');
-
-    if (isReviewUser) {
-      _stateStatusRx.value = StateStatus.LOADING;
-      GetStorageRepository gs = GetStorageRepository(Get.find());
-      var hostUrl = "$hostString${urlController.text.trim()}";
-      if (urlController.text.trim().isEmpty) {
-        hostUrl = "https://app.teknovative.com";
-      }
-
-      gs.write(isLoginSession, true);
-      gs.write(userNameSession, loginInput.isEmpty ? "dhaval@gmail.com" : loginInput);
-      gs.write(userPass, passwordInput.isEmpty ? "dhaval" : passwordInput);
-      gs.write(userIdSession, 101);
-      gs.write(hostUrlLoginSession, hostUrl);
-      gs.write(isNativeAnalyticsSession, true);
-
-      _stateStatusRx.value = StateStatus.SUCCESS;
-      showSnackbar('Login Successful', 'Welcome ${loginInput.isEmpty ? "Dhaval" : loginInput}');
-      Get.offAll(const DashboardScreen());
       return;
     }
 
@@ -150,6 +110,9 @@ class LoginController extends GetxController {
           'Cookie': 'session_id=c5a7fe5af5aa4b5940c4365a1592702650a6fed8'
         }, success: (response) async {
           // Keep LOADING until navigation (includes Odoo web session auth).
+          debugPrint("================ LOGIN API SUCCESS RESPONSE ================");
+          debugPrint(response.toString());
+          debugPrint("============================================================");
           dynamic res = jsonDecode(response.toString());
           if (res['responseCode'] == 200) {
             GetStorageRepository gs = GetStorageRepository(Get.find());
@@ -160,10 +123,6 @@ class LoginController extends GetxController {
             await gs.write(userPass, password);
             await gs.write(userIdSession, res["data"]["userId"]);
             await gs.write(hostUrlLoginSession, hostUrl);
-
-            if (login.toLowerCase().contains('dhaval') || login.toLowerCase().contains('apple')) {
-              await gs.write(isNativeAnalyticsSession, true);
-            }
 
             // Resolve DB from API (needed for Odoo web session auth).
             String? db;
@@ -199,6 +158,9 @@ class LoginController extends GetxController {
             showErrorSnackbar(res["responseMessage"]);
           }
         }, error: (e) {
+          debugPrint("================ LOGIN API ERROR RESPONSE ================");
+          debugPrint("Error: ${e?.message}");
+          debugPrint("==========================================================");
           _stateStatusRx.value = StateStatus.FAILURE;
           Get.showErrorSnackbar(e!.message);
         });

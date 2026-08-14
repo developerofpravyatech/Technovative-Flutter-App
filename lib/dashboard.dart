@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
@@ -44,12 +45,54 @@ class _DashboardScreenState extends State<DashboardScreen>
   double? liveLng;
   bool isLocating = false;
  
+  StreamSubscription<Position>? _positionStreamSubscription;
+
+  int odooLeadsCount = 0;
+  int odooPartnersCount = 0;
+  int odooSalesCount = 0;
+  int odooTasksCount = 0;
+  List<Map<String, dynamic>> odooRecentLeads = [];
+  bool isLoadingOdooMetrics = false;
+
+  Future<void> _fetchOdooDashboardMetrics() async {
+    final box = GetStorage();
+    final host = box.read(hostUrlLoginSession)?.toString() ?? box.read(whostUrl)?.toString();
+    final sessionId = box.read(odooSessionId)?.toString();
+
+    if (host == null || host.isEmpty || sessionId == null || sessionId.isEmpty) return;
+
+    if (mounted) setState(() => isLoadingOdooMetrics = true);
+
+    try {
+      final metrics = await OdooWebAuth.fetchOdooMetrics(
+        hostUrl: host,
+        sessionId: sessionId,
+      );
+      if (mounted) {
+        setState(() {
+          odooLeadsCount = metrics['leadsCount'] ?? 0;
+          odooPartnersCount = metrics['partnersCount'] ?? 0;
+          odooSalesCount = metrics['salesCount'] ?? 0;
+          odooTasksCount = metrics['tasksCount'] ?? 0;
+          odooRecentLeads = List<Map<String, dynamic>>.from(metrics['recentLeads'] ?? []);
+          isLoadingOdooMetrics = false;
+        });
+      }
+    } catch (e) {
+      debugPrint("Error loading dynamic Odoo dashboard metrics: $e");
+      if (mounted) setState(() => isLoadingOdooMetrics = false);
+    }
+  }
+
   Future<void> _fetchCurrentLocation() async {
     if (isLocating) return;
     setState(() => isLocating = true);
     try {
       bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
-      if (serviceEnabled) {
+      LocationPermission permission = await Geolocator.checkPermission();
+      if (serviceEnabled &&
+          (permission == LocationPermission.always ||
+              permission == LocationPermission.whileInUse)) {
         Position position = await Geolocator.getCurrentPosition(
           desiredAccuracy: LocationAccuracy.high,
           timeLimit: const Duration(seconds: 5),
@@ -59,6 +102,7 @@ class _DashboardScreenState extends State<DashboardScreen>
             liveLat = position.latitude;
             liveLng = position.longitude;
           });
+          await sendLatLongOfflineOnline(position.latitude, position.longitude);
         }
       }
     } catch (e) {
@@ -67,6 +111,49 @@ class _DashboardScreenState extends State<DashboardScreen>
       if (mounted) {
         setState(() => isLocating = false);
       }
+    }
+  }
+
+  void _startLocationStream() async {
+    try {
+      bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
+      LocationPermission permission = await Geolocator.checkPermission();
+      
+      final box = GetStorage();
+      bool hasPrompted = box.read('hasPromptedLocationPermission') == true;
+
+      // Only prompt system location permission once across the entire application lifecycle
+      if (permission == LocationPermission.denied && !hasPrompted) {
+        await box.write('hasPromptedLocationPermission', true);
+        permission = await Geolocator.requestPermission();
+      }
+
+      if (serviceEnabled &&
+          (permission == LocationPermission.always ||
+              permission == LocationPermission.whileInUse)) {
+        const locationSettings = LocationSettings(
+          accuracy: LocationAccuracy.high,
+          distanceFilter: 10,
+        );
+        _positionStreamSubscription =
+            Geolocator.getPositionStream(locationSettings: locationSettings)
+                .listen(
+          (Position position) {
+            if (mounted) {
+              setState(() {
+                liveLat = position.latitude;
+                liveLng = position.longitude;
+              });
+              sendLatLongOfflineOnline(position.latitude, position.longitude);
+            }
+          },
+          onError: (error) {
+            debugPrint("GPS position stream error: $error");
+          },
+        );
+      }
+    } catch (e) {
+      debugPrint("Failed to start location stream: $e");
     }
   }
 
@@ -157,19 +244,21 @@ class _DashboardScreenState extends State<DashboardScreen>
     WidgetsBinding.instance.addObserver(this);
 
     final box = GetStorage();
-    final user = box.read(userNameSession)?.toString().toLowerCase() ?? '';
-    final isNativePref = box.read(isNativeAnalyticsSession) == true;
-    showNativeDashboard = isNativePref || user.contains('dhaval') || user.contains('apple') || user.contains('reviewer');
+    final userId = box.read(userIdSession);
+    showNativeDashboard = userId == 2 || userId == '2';
 
     // Start background & location services
     sendUserIdToNative(); 
     checkServiceAndGpsStatus();
     startBackgroundService();
     _fetchCurrentLocation();
+    _startLocationStream();
+    _fetchOdooDashboardMetrics();
   }
 
   @override
   void dispose() {
+    _positionStreamSubscription?.cancel();
     WidgetsBinding.instance.removeObserver(this);
     DozeModeService.stopListening();
     super.dispose();
@@ -841,36 +930,33 @@ class _DashboardScreenState extends State<DashboardScreen>
 
   Widget _buildNativeDashboardAnalytics(BuildContext context) {
     final box = GetStorage();
-    final userName = box.read(userNameSession)?.toString() ?? 'Dhaval';
-    final rawUserId = box.read(userIdSession);
-    final userId = rawUserId?.toString() ?? '101';
+    final userName = box.read(userNameSession)?.toString() ?? 'User';
     final rawHost = box.read(hostUrlLoginSession)?.toString() ?? box.read(whostUrl)?.toString() ?? 'app.teknovative.com';
     final cleanHost = rawHost.replaceAll('https://', '').replaceAll('http://', '').replaceAll('/web', '');
     final dbName = box.read(odooDbSession)?.toString() ?? 'Odoo DB';
-    final hasSessionId = box.read(odooSessionId)?.toString().isNotEmpty == true;
-
+   
     return SingleChildScrollView(
       physics: const BouncingScrollPhysics(),
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // 1. Executive Banner with Real Session Info
+          // 1. Classy Executive Hero Banner
           Container(
             width: double.infinity,
-            padding: const EdgeInsets.all(18),
+            padding: const EdgeInsets.all(20),
             decoration: BoxDecoration(
               gradient: const LinearGradient(
-                colors: [Color(0xff024950), Color(0xff1F3844), Color(0xff0385FE)],
+                colors: [Color(0xff024950), Color(0xff0F2027), Color(0xff0052D4)],
                 begin: Alignment.topLeft,
                 end: Alignment.bottomRight,
               ),
-              borderRadius: BorderRadius.circular(20),
+              borderRadius: BorderRadius.circular(22),
               boxShadow: [
                 BoxShadow(
-                  color: const Color(0xff024950).withOpacity(0.3),
-                  blurRadius: 10,
-                  offset: const Offset(0, 4),
+                  color: const Color(0xff024950).withOpacity(0.35),
+                  blurRadius: 14,
+                  offset: const Offset(0, 6),
                 )
               ],
             ),
@@ -880,88 +966,182 @@ class _DashboardScreenState extends State<DashboardScreen>
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    Expanded(
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: isServiceStarted ? Colors.green.withOpacity(0.25) : Colors.orange.withOpacity(0.25),
+                        borderRadius: BorderRadius.circular(20),
+                        border: Border.all(
+                          color: isServiceStarted ? Colors.greenAccent : Colors.orangeAccent,
+                          width: 0.9,
+                        ),
+                      ),
                       child: Row(
+                        mainAxisSize: MainAxisSize.min,
                         children: [
-                          CircleAvatar(
-                            radius: 20,
-                            backgroundColor: Colors.white24,
-                            child: Text(
-                              userName.isNotEmpty ? userName[0].toUpperCase() : 'U',
-                              style: const TextStyle(
-                                color: Colors.white,
-                                fontWeight: FontWeight.bold,
-                                fontSize: 16,
-                              ),
+                          Container(
+                            width: 6,
+                            height: 6,
+                            decoration: BoxDecoration(
+                              shape: BoxShape.circle,
+                              color: isServiceStarted ? Colors.greenAccent : Colors.orangeAccent,
                             ),
                           ),
-                          const SizedBox(width: 10),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  "User: $userName",
-                                  overflow: TextOverflow.ellipsis,
-                                  maxLines: 1,
-                                  style: const TextStyle(
-                                    color: Colors.white,
-                                    fontSize: 15,
-                                    fontWeight: FontWeight.bold,
-                                  ),
-                                ),
-                                Text(
-                                  "Partner #$userId • $cleanHost",
-                                  overflow: TextOverflow.ellipsis,
-                                  maxLines: 1,
-                                  style: const TextStyle(
-                                    color: Colors.white70,
-                                    fontSize: 11,
-                                  ),
-                                ),
-                              ],
+                          const SizedBox(width: 6),
+                          Text(
+                            isServiceStarted ? "GPS TRACKING ACTIVE" : "GPS SERVICE INACTIVE",
+                            style: TextStyle(
+                              color: isServiceStarted ? Colors.greenAccent : Colors.orangeAccent,
+                              fontSize: 10,
+                              fontWeight: FontWeight.bold,
+                              letterSpacing: 0.5,
                             ),
                           ),
                         ],
                       ),
                     ),
-                    const SizedBox(width: 8),
+                    Row(
+                      children: [
+                        InkWell(
+                          onTap: isLoadingOdooMetrics ? null : _fetchOdooDashboardMetrics,
+                          child: Container(
+                            padding: const EdgeInsets.all(7),
+                            decoration: BoxDecoration(
+                              color: Colors.white.withOpacity(0.18),
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                            child: isLoadingOdooMetrics
+                                ? const SizedBox(
+                                    width: 14,
+                                    height: 14,
+                                    child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                                  )
+                                : const Icon(Icons.refresh_rounded, color: Colors.white, size: 16),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        InkWell(
+                          onTap: () {
+                            setState(() {
+                              showNativeDashboard = false;
+                            });
+                          },
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                            decoration: BoxDecoration(
+                              gradient: const LinearGradient(
+                                colors: [Color(0xff0385FE), Color(0xff0052D4)],
+                              ),
+                              borderRadius: BorderRadius.circular(14),
+                              boxShadow: [
+                                BoxShadow(
+                                  color: const Color(0xff0385FE).withOpacity(0.4),
+                                  blurRadius: 6,
+                                  offset: const Offset(0, 2),
+                                )
+                              ],
+                            ),
+                            child: const Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(Icons.language_rounded, color: Colors.white, size: 13),
+                                SizedBox(width: 5),
+                                Text(
+                                  "ERP Web",
+                                  style: TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 16),
+                Row(
+                  children: [
                     Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                      width: 44,
+                      height: 44,
+                      padding: const EdgeInsets.all(4),
                       decoration: BoxDecoration(
-                        color: Colors.green.withOpacity(0.25),
-                        borderRadius: BorderRadius.circular(12),
-                        border: Border.all(color: Colors.greenAccent, width: 0.8),
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(10),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withOpacity(0.1),
+                            blurRadius: 4,
+                            offset: const Offset(0, 2),
+                          )
+                        ],
                       ),
-                      child: const Row(
-                        mainAxisSize: MainAxisSize.min,
+                      child: ClipRRect(
+                        borderRadius: BorderRadius.circular(7),
+                        child: Image.asset(
+                          'assets/appLogo.png',
+                          fit: BoxFit.contain,
+                          errorBuilder: (context, error, stackTrace) => Container(
+                            color: const Color(0xff024950),
+                            alignment: Alignment.center,
+                            child: Text(
+                              userName.isNotEmpty ? userName[0].toUpperCase() : 'A',
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontWeight: FontWeight.bold,
+                                fontSize: 18,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Icon(Icons.circle, color: Colors.greenAccent, size: 8),
-                          SizedBox(width: 4),
                           Text(
-                            "Live Session",
-                            style: TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.w600),
+                            "Admin Portal: $userName",
+                            overflow: TextOverflow.ellipsis,
+                            maxLines: 1,
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 16,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            "$cleanHost ($dbName)",
+                            overflow: TextOverflow.ellipsis,
+                            maxLines: 1,
+                            style: TextStyle(
+                              color: Colors.white.withOpacity(0.8),
+                              fontSize: 11.5,
+                            ),
                           ),
                         ],
                       ),
                     ),
                   ],
                 ),
-                const SizedBox(height: 16),
+                const SizedBox(height: 18),
                 Container(
-                  padding: const EdgeInsets.all(12),
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
                   decoration: BoxDecoration(
                     color: Colors.white.withOpacity(0.12),
-                    borderRadius: BorderRadius.circular(12),
+                    borderRadius: BorderRadius.circular(14),
+                    border: Border.all(color: Colors.white.withOpacity(0.15)),
                   ),
                   child: Row(
                     mainAxisAlignment: MainAxisAlignment.spaceAround,
                     children: [
-                      _buildHeaderStat("User ID", "#$userId", Icons.badge_outlined),
-                      Container(height: 24, width: 1, color: Colors.white24),
-                      _buildHeaderStat("GPS Service", isServiceStarted ? "Active" : "Off", Icons.gps_fixed),
-                      Container(height: 24, width: 1, color: Colors.white24),
-                      _buildHeaderStat("SSO Web Auth", hasSessionId ? "OK" : "Direct", Icons.verified_user_outlined),
+                      _buildHeaderStat("CRM Leads", "$odooLeadsCount", Icons.leaderboard_outlined),
+                      Container(height: 22, width: 1, color: Colors.white24),
+                      _buildHeaderStat("Partners", "$odooPartnersCount", Icons.people_alt_outlined),
+                      Container(height: 22, width: 1, color: Colors.white24),
+                      _buildHeaderStat("Sales Orders", "$odooSalesCount", Icons.shopping_bag_outlined),
                     ],
                   ),
                 ),
@@ -971,15 +1151,15 @@ class _DashboardScreenState extends State<DashboardScreen>
 
           const SizedBox(height: 18),
 
-          // 2. Real Metrics Cards Grid (2x2)
+          // 2. Dynamic Odoo ERP Metrics Cards Grid (2x2)
           Row(
             children: [
               Expanded(
                 child: _buildMetricCard(
-                  title: "Logged-in Partner",
-                  value: "ID: #$userId",
-                  subtext: userName,
-                  icon: Icons.person_outline,
+                  title: "Live CRM Leads",
+                  value: "$odooLeadsCount Opportunities",
+                  subtext: "Odoo CRM Model",
+                  icon: Icons.trending_up_rounded,
                   accentColor: const Color(0xff024950),
                   bgGradient: [const Color(0xffE8F8F5), Colors.white],
                 ),
@@ -987,10 +1167,10 @@ class _DashboardScreenState extends State<DashboardScreen>
               const SizedBox(width: 12),
               Expanded(
                 child: _buildMetricCard(
-                  title: "Host Server",
-                  value: cleanHost,
-                  subtext: "DB: $dbName",
-                  icon: Icons.dns_outlined,
+                  title: "Clients & Contacts",
+                  value: "$odooPartnersCount Partners",
+                  subtext: "Odoo Res.Partner",
+                  icon: Icons.people_outline_rounded,
                   accentColor: const Color(0xff0385FE),
                   bgGradient: [const Color(0xffEBF5FF), Colors.white],
                 ),
@@ -1002,21 +1182,21 @@ class _DashboardScreenState extends State<DashboardScreen>
             children: [
               Expanded(
                 child: _buildMetricCard(
-                  title: "GPS Location Service",
-                  value: isServiceStarted ? "Service Active" : "Service Off",
-                  subtext: isServiceStarted ? "Background Sync On" : "Tap GPS to Start",
-                  icon: Icons.location_on_outlined,
-                  accentColor: isServiceStarted ? Colors.green : Colors.orange,
-                  bgGradient: [isServiceStarted ? const Color(0xffE8F8F5) : const Color(0xffFDF2E9), Colors.white],
+                  title: "Sales Orders",
+                  value: "$odooSalesCount Orders",
+                  subtext: "Odoo Sale.Order",
+                  icon: Icons.shopping_cart_outlined,
+                  accentColor: Colors.orange,
+                  bgGradient: [const Color(0xffFDF2E9), Colors.white],
                 ),
               ),
               const SizedBox(width: 12),
               Expanded(
                 child: _buildMetricCard(
-                  title: "Odoo RPC Web Session",
-                  value: hasSessionId ? "Authenticated" : "Standard",
-                  subtext: hasSessionId ? "SSO Cookie Valid" : "Session Active",
-                  icon: Icons.shield_outlined,
+                  title: "Project Tasks",
+                  value: "$odooTasksCount Tasks",
+                  subtext: "Odoo Project.Task",
+                  icon: Icons.assignment_outlined,
                   accentColor: const Color(0xff8E44AD),
                   bgGradient: [const Color(0xffF5EEF8), Colors.white],
                 ),
@@ -1024,147 +1204,101 @@ class _DashboardScreenState extends State<DashboardScreen>
             ],
           ),
 
-          const SizedBox(height: 18),
+          const SizedBox(height: 20),
 
-          // 5. Operational Targets Progress
-          Container(
-            width: double.infinity,
-            padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(16),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withOpacity(0.04),
-                  blurRadius: 8,
-                  offset: const Offset(0, 2),
-                )
-              ],
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text(
-                  "Operational Key Performance Indicators",
-                  style: TextStyle(
-                    fontSize: 14,
-                    fontWeight: FontWeight.bold,
-                    color: Color(0xff1F3844),
-                  ),
-                ),
-                const SizedBox(height: 14),
-                _buildProgressBarItem("Client Inspections & Onboarding", 0.88, const Color(0xff024950)),
-                const SizedBox(height: 12),
-                _buildProgressBarItem("Enterprise CRM System Delivery", 0.76, const Color(0xff0385FE)),
-                const SizedBox(height: 12),
-                _buildProgressBarItem("Field Location & GPS Verification", 0.95, const Color(0xff00A86B)),
-              ],
-            ),
-          ),
-
-          const SizedBox(height: 18),
-
-          // 6. Quick Action Tools
+          // 3. Quick Action Tools
           const Text(
             "Quick Actions & Tools",
             style: TextStyle(
-              fontSize: 14,
+              fontSize: 15,
               fontWeight: FontWeight.bold,
-              color: Color(0xff1F3844),
+              color: Color(0xff0F172A),
             ),
           ),
           const SizedBox(height: 10),
           Row(
             children: [
               Expanded(
-                child: _buildActionButton("New Lead", Icons.person_add_alt_1_outlined, () {
-                  _showActionDialog(context, "New Lead", "Create new CRM client lead entry.");
+                child: _buildActionButton("ERP Web Admin", Icons.language_rounded, () {
+                  setState(() {
+                    showNativeDashboard = false;
+                  });
                 }),
               ),
-              const SizedBox(width: 10),
+              const SizedBox(width: 8),
               Expanded(
-                child: _buildActionButton("Log Task", Icons.assignment_outlined, () {
-                  _showActionDialog(context, "Log Task", "Assign or complete daily operational task.");
+                child: _buildActionButton("GPS Tracking", isServiceStarted ? Icons.location_off : Icons.location_on, () {
+                  _handleServiceToggle();
                 }),
               ),
-              const SizedBox(width: 10),
+              const SizedBox(width: 8),
               Expanded(
-                child: _buildActionButton("Reports", Icons.summarize_outlined, () {
-                  _showActionDialog(context, "Reports", "Generate and export PDF analytics report.");
+                child: _buildActionButton("Logout", Icons.logout_rounded, () {
+                  _handleLogout();
                 }),
               ),
             ],
           ),
 
-          const SizedBox(height: 18),
+          if (odooRecentLeads.isNotEmpty) ...[
+            const SizedBox(height: 18),
 
-          // 7. Recent Operations Feed
-          Container(
-            width: double.infinity,
-            padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(16),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withOpacity(0.04),
-                  blurRadius: 8,
-                  offset: const Offset(0, 2),
-                )
-              ],
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    const Text(
-                      "Recent System Activities",
-                      style: TextStyle(
-                        fontSize: 14,
-                        fontWeight: FontWeight.bold,
-                        color: Color(0xff1F3844),
+            // 4. Live ERP Activity Feed (Real Odoo Data)
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(16),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(0.04),
+                    blurRadius: 8,
+                    offset: const Offset(0, 2),
+                  )
+                ],
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const Text(
+                        "Live Odoo ERP Leads",
+                        style: TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.bold,
+                          color: Color(0xff1F3844),
+                        ),
                       ),
-                    ),
-                    Icon(Icons.history, size: 18, color: Colors.grey[600]),
-                  ],
-                ),
-                const SizedBox(height: 12),
-                _buildActivityItem(
-                  "GPS location update verified",
-                  "Partner #101 location sync completed successfully",
-                  "10 mins ago",
-                  Icons.gps_fixed,
-                  Colors.green,
-                ),
-                const Divider(height: 20),
-                _buildActivityItem(
-                  "Project Milestone Completed",
-                  "Pravyatech CRM v2 module sign-off approved",
-                  "1 hour ago",
-                  Icons.check_circle_outline,
-                  const Color(0xff0385FE),
-                ),
-                const Divider(height: 20),
-                _buildActivityItem(
-                  "New Enterprise Lead Added",
-                  "Inquiry from Technovative Systems regarding ERP integration",
-                  "3 hours ago",
-                  Icons.person_add_alt_1,
-                  Colors.purple,
-                ),
-                const Divider(height: 20),
-                _buildActivityItem(
-                  "Daily Analytics Report Built",
-                  "Automated daily summary compiled and saved",
-                  "5 hours ago",
-                  Icons.assessment_outlined,
-                  Colors.orange,
-                ),
-              ],
+                      Icon(Icons.feed_outlined, size: 18, color: Colors.grey[600]),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  ...odooRecentLeads.asMap().entries.map((entry) {
+                    final index = entry.key;
+                    final item = entry.value;
+                    final title = item['name']?.toString() ?? 'New Opportunity';
+                    final partner = item['partner_name']?.toString() ?? item['contact_name']?.toString() ?? 'Odoo Client';
+                    final createDate = item['create_date']?.toString() ?? 'Just now';
+                    return Column(
+                      children: [
+                        if (index > 0) const Divider(height: 20),
+                        _buildActivityItem(
+                          title,
+                          "Client: $partner",
+                          createDate.length > 10 ? createDate.substring(0, 10) : createDate,
+                          Icons.business_center_outlined,
+                          const Color(0xff0385FE),
+                        ),
+                      ],
+                    );
+                  }),
+                ],
+              ),
             ),
-          ),
+          ],
 
           const SizedBox(height: 24),
         ],
@@ -1176,286 +1310,145 @@ class _DashboardScreenState extends State<DashboardScreen>
   Widget build(BuildContext context) {
     SystemChrome.setSystemUIOverlayStyle(const SystemUiOverlayStyle(
         statusBarColor: Color(0xff024950),
-        statusBarIconBrightness: Brightness.light));
-    return SafeArea(
-      child: UpgradeAlert(
-        upgrader: Upgrader(
-            durationUntilAlertAgain: const Duration(days: 1)),
-        child: WillPopScope(
-          onWillPop: () async {
-            if (!showNativeDashboard && webViewController != null && await webViewController!.canGoBack()) {
-              await webViewController!.goBack();
+        statusBarIconBrightness: Brightness.light,
+        statusBarBrightness: Brightness.dark));
+    return Container(
+      color: const Color(0xff024950),
+      child: SafeArea(
+        child: UpgradeAlert(
+          upgrader: Upgrader(
+              durationUntilAlertAgain: const Duration(days: 1)),
+          child: WillPopScope(
+            onWillPop: () async {
+              if (!showNativeDashboard && webViewController != null && await webViewController!.canGoBack()) {
+                WebHistory? history = await webViewController!.getCopyBackForwardList();
+                if (history != null && history.currentIndex != null && history.currentIndex! > 0) {
+                  int prevIndex = history.currentIndex! - 1;
+                  String? prevUrl = history.list?[prevIndex].url?.toString();
+                  if (prevUrl != null && prevUrl != 'about:blank' && !prevUrl.endsWith('/about:blank')) {
+                    await webViewController!.goBack();
+                    return false;
+                  }
+                }
+              }
+              final confirmExit = await showConfirmationDialog();
+              if (confirmExit == true) {
+                await SystemNavigator.pop();
+                return true;
+              }
               return false;
-            }
-            return (await showConfirmationDialog()) == true;
-          },
-          child: Scaffold(
-              appBar: PreferredSize(
-                preferredSize: const Size.fromHeight(60),
-                child: Container(
-                  decoration: BoxDecoration(
-                    gradient: const LinearGradient(
-                      colors: [Color(0xff024950), Color(0xff1F3844), Color(0xff0385FE)],
-                      begin: Alignment.centerLeft,
-                      end: Alignment.centerRight,
-                    ),
-                    boxShadow: [
-                      BoxShadow(
-                        color: const Color(0xff024950).withOpacity(0.35),
-                        blurRadius: 8,
-                        offset: const Offset(0, 3),
-                      ),
-                    ],
-                    borderRadius: const BorderRadius.only(
-                      bottomLeft: Radius.circular(16),
-                      bottomRight: Radius.circular(16),
-                    ),
-                  ),
-                  child: SafeArea(
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
-                      child: Row(
+            }, 
+            child: Scaffold(
+                backgroundColor: showNativeDashboard ? const Color(0xffF4F7FE) : const Color(0xff024950),
+                body: showNativeDashboard
+                    ? _buildNativeDashboardAnalytics(context)
+                    : Stack(
                         children: [
-                          // Branded Logo / Icon Chip
-                          Container(
-                            padding: const EdgeInsets.all(7),
-                            decoration: BoxDecoration(
-                              color: Colors.white.withOpacity(0.15),
-                              shape: BoxShape.circle,
-                              border: Border.all(color: Colors.white30, width: 1),
-                            ),
-                            child: Icon(
-                              showNativeDashboard ? Icons.insights_rounded : Icons.language_rounded,
-                              color: Colors.white,
-                              size: 18,
-                            ),
-                          ),
-                          const SizedBox(width: 10),
-                          // Title & Status Subtitle
-                          Expanded(
-                            child: Column(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  showNativeDashboard ? "Dashboard Analytics" : "ERP Web Portal",
-                                  style: const TextStyle(
-                                    color: Colors.white,
-                                    fontSize: 16,
-                                    fontWeight: FontWeight.bold,
-                                    letterSpacing: 0.3,
-                                  ),
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                ),
-                                Row(
-                                  children: [
-                                    Container(
-                                      width: 6,
-                                      height: 6,
-                                      decoration: BoxDecoration(
-                                        color: isServiceStarted ? Colors.greenAccent : Colors.amberAccent,
-                                        shape: BoxShape.circle,
-                                      ),
-                                    ),
-                                    const SizedBox(width: 4),
-                                    Expanded(
-                                      child: Text(
-                                        isServiceStarted ? "GPS Live Tracking Active" : "Technovative Solutions",
-                                        style: const TextStyle(
-                                          color: Colors.white70,
-                                          fontSize: 10,
-                                          fontWeight: FontWeight.w500,
-                                        ),
-                                        maxLines: 1,
-                                        overflow: TextOverflow.ellipsis,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ],
-                            ),
-                          ),
-                          // Action Buttons
-                          // 1. Service Pill Button
-                          InkWell(
-                            onTap: _handleServiceToggle,
-                            borderRadius: BorderRadius.circular(20),
-                            child: Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
-                              decoration: BoxDecoration(
-                                color: isServiceStarted ? Colors.red.withOpacity(0.25) : Colors.green.withOpacity(0.25),
-                                borderRadius: BorderRadius.circular(20),
-                                border: Border.all(
-                                  color: isServiceStarted ? Colors.redAccent : Colors.greenAccent,
-                                  width: 0.9,
-                                ),
-                              ),
-                              child: Row(
-                                children: [
-                                  Icon(
-                                    isServiceStarted ? Icons.location_off : Icons.location_on,
-                                    color: isServiceStarted ? Colors.redAccent : Colors.greenAccent,
-                                    size: 14,
-                                  ),
-                                  const SizedBox(width: 4),
-                                  Text(
-                                    isServiceStarted ? "Stop" : "GPS",
-                                    style: TextStyle(
-                                      color: isServiceStarted ? Colors.redAccent : Colors.greenAccent,
-                                      fontSize: 10,
-                                      fontWeight: FontWeight.bold,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ),
-                          const SizedBox(width: 6),
-                          // 2. Mode Switch Button
-                          InkWell(
-                            onTap: () {
-                              setState(() {
-                                showNativeDashboard = !showNativeDashboard;
-                              });
-                            },
-                            borderRadius: BorderRadius.circular(20),
-                            child: Container(
-                              padding: const EdgeInsets.all(7),
-                              decoration: BoxDecoration(
-                                color: Colors.white.withOpacity(0.15),
-                                shape: BoxShape.circle,
-                                border: Border.all(color: Colors.white24, width: 0.8),
-                              ),
-                              child: Icon(
-                                showNativeDashboard ? Icons.language : Icons.analytics_outlined,
-                                color: Colors.white,
-                                size: 16,
-                              ),
-                            ),
-                          ),
-                          const SizedBox(width: 6),
-                          // 3. Logout Button
-                          InkWell(
-                            onTap: _handleLogout,
-                            borderRadius: BorderRadius.circular(20),
-                            child: Container(
-                              padding: const EdgeInsets.all(7),
-                              decoration: BoxDecoration(
-                                color: Colors.redAccent.withOpacity(0.25),
-                                shape: BoxShape.circle,
-                                border: Border.all(color: Colors.redAccent.withOpacity(0.5), width: 0.8),
-                              ),
-                              child: const Icon(
-                                Icons.logout_rounded,
-                                color: Colors.white,
-                                size: 16,
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-              body: showNativeDashboard
-                  ? _buildNativeDashboardAnalytics(context)
-                  : Stack(
-                      children: [
-                        Column(
-                          children: [
-                            Expanded( 
-                              child: InAppWebView(
-                                onWebViewCreated: (controller) async {
-                                  webViewController = controller;
-                                  await _injectOdooSessionAndLoad(controller);
-                                },
-                                shouldOverrideUrlLoading:
-                                    (controller, navigationAction) async {
-                                  var uri = navigationAction.request.url!;
-                                  debugPrint(
-                                      "url = > ${navigationAction.request.url}");
-                                  if (uri.scheme == 'tel' || uri.scheme == 'whatsapp' || uri.scheme == 'mailto') {
-                                    await launchUrl(uri);
-                                    return NavigationActionPolicy.CANCEL;
-                                  } else if (uri.host == 'maps.google.com' &&
-                                      uri.queryParameters.containsKey('q')) {
-                                    final location = uri.queryParameters['q'];
-                                    if (location != null) {
-                                      await openGoogleMapsUsingAddress(
-                                          "https://www.google.com/maps/search/?api=1&query=$location");
+                          Column(
+                            children: [
+                              Expanded( 
+                                child: InAppWebView(
+                                  onWebViewCreated: (controller) async {
+                                    webViewController = controller;
+                                    await _injectOdooSessionAndLoad(controller);
+                                  },
+                                  shouldOverrideUrlLoading:
+                                      (controller, navigationAction) async {
+                                    var uri = navigationAction.request.url!;
+                                    debugPrint(
+                                        "url = > ${navigationAction.request.url}");
+                                    if (uri.scheme == 'tel' || uri.scheme == 'whatsapp' || uri.scheme == 'mailto') {
+                                      await launchUrl(uri);
+                                      return NavigationActionPolicy.CANCEL;
+                                    } else if (uri.host == 'maps.google.com' &&
+                                        uri.queryParameters.containsKey('q')) {
+                                      final location = uri.queryParameters['q'];
+                                      if (location != null) {
+                                        await openGoogleMapsUsingAddress(
+                                            "https://www.google.com/maps/search/?api=1&query=$location");
+                                        return NavigationActionPolicy.CANCEL;
+                                      }
+                                    } else if (uri.path.contains('/maps/dir/')) {
+                                      final Uri googleMapsUrl = uri;
+                                      if (await canLaunchUrl(googleMapsUrl)) {
+                                        await launchUrl(googleMapsUrl,
+                                            mode: LaunchMode.externalApplication);
+                                      }
                                       return NavigationActionPolicy.CANCEL;
                                     }
-                                  } else if (uri.path.contains('/maps/dir/')) {
-                                    final Uri googleMapsUrl = uri;
-                                    if (await canLaunchUrl(googleMapsUrl)) {
-                                      await launchUrl(googleMapsUrl,
-                                          mode: LaunchMode.externalApplication);
+                                    return NavigationActionPolicy.ALLOW;
+                                  },
+                                  onDownloadStartRequest:
+                                      (controller, downloadStartRequest) {
+                                    getPDF(context,
+                                        "${downloadStartRequest.url.uriValue}");
+                                  },
+                                  onLoadStart: (controller, url) {
+                                    debugPrint("WebView started loading: $url");
+                                    setState(() => contentLLoading = true);
+                                  },
+                                  onLoadStop: (controller, url) {
+                                    debugPrint("WebView finished loading: $url");
+                                    setState(() => contentLLoading = false);
+                                  },
+                                  onReceivedError: (controller, request, error) {
+                                    debugPrint("WebView error: ${error.description}");
+                                    setState(() => contentLLoading = false);
+                                  },
+                                  onReceivedHttpError: (controller, request, response) {
+                                    debugPrint(
+                                        "WebView HTTP error: ${response.statusCode}");
+                                    setState(() => contentLLoading = false);
+                                  },
+                                  initialUrlRequest: URLRequest(
+                                      url: WebUri.uri(Uri.parse(() {
+                                    final box = GetStorage();
+                                    final host = box.read(hostUrlLoginSession)?.toString() ?? box.read(whostUrl)?.toString();
+                                    if (widget.webHostUrl != null && widget.webHostUrl!.isNotEmpty) {
+                                      return widget.webHostUrl!;
                                     }
-                                    return NavigationActionPolicy.CANCEL;
-                                  }
-                                  return NavigationActionPolicy.ALLOW;
-                                },
-                                onDownloadStartRequest:
-                                    (controller, downloadStartRequest) {
-                                  getPDF(context,
-                                      "${downloadStartRequest.url.uriValue}");
-                                },
-                                onLoadStart: (controller, url) {
-                                  debugPrint("WebView started loading: $url");
-                                  setState(() => contentLLoading = true);
-                                },
-                                onLoadStop: (controller, url) {
-                                  debugPrint("WebView finished loading: $url");
-                                  setState(() => contentLLoading = false);
-                                },
-                                onReceivedError: (controller, request, error) {
-                                  debugPrint("WebView error: ${error.description}");
-                                  setState(() => contentLLoading = false);
-                                },
-                                onReceivedHttpError: (controller, request, response) {
-                                  debugPrint(
-                                      "WebView HTTP error: ${response.statusCode}");
-                                  setState(() => contentLLoading = false);
-                                },
-                                initialUrlRequest: URLRequest(
-                                    url: WebUri.uri(Uri.parse('about:blank'))),
-                                initialSettings: InAppWebViewSettings(
-                                    allowsBackForwardNavigationGestures: true,
-                                    enableViewportScale: true,
-                                    javaScriptEnabled: true,
-                                    domStorageEnabled: true,
-                                    databaseEnabled: true,
-                                    pageZoom: 1,
-                                    supportZoom: false,
-                                    initialScale: 1,
-                                    useShouldOverrideUrlLoading: true,
-                                    transparentBackground: true,
-                                    verticalScrollBarEnabled: false,
-                                    allowsLinkPreview: true,
-                                    allowsInlineMediaPlayback: true,
-                                    sharedCookiesEnabled: true,
-                                    thirdPartyCookiesEnabled: true,
-                                    preferredContentMode:
-                                        UserPreferredContentMode.MOBILE),
-                                onGeolocationPermissionsShowPrompt:
-                                    (controller, origin) async {
-                                  return GeolocationPermissionShowPromptResponse(
-                                    origin: origin,
-                                    allow: true,
-                                    retain: true,
-                                  );
-                                },
+                                    if (host != null && host.isNotEmpty) {
+                                      return host.endsWith('/web') ? host : '$host/web';
+                                    }
+                                    return 'https://iosapp.teknovatecrm.in/web';
+                                  }()))),
+                                  initialSettings: InAppWebViewSettings(
+                                      allowsBackForwardNavigationGestures: true,
+                                      enableViewportScale: true,
+                                      javaScriptEnabled: true,
+                                      domStorageEnabled: true,
+                                      databaseEnabled: true,
+                                      pageZoom: 1,
+                                      supportZoom: false,
+                                      initialScale: 1,
+                                      useShouldOverrideUrlLoading: true,
+                                      transparentBackground: true,
+                                      verticalScrollBarEnabled: false,
+                                      allowsLinkPreview: true,
+                                      allowsInlineMediaPlayback: true,
+                                      sharedCookiesEnabled: true,
+                                      thirdPartyCookiesEnabled: true,
+                                      preferredContentMode:
+                                          UserPreferredContentMode.MOBILE),
+                                  onGeolocationPermissionsShowPrompt:
+                                      (controller, origin) async {
+                                    return GeolocationPermissionShowPromptResponse(
+                                      origin: origin,
+                                      allow: true,
+                                      retain: true,
+                                    );
+                                  },
+                                ),
                               ),
-                            ),
-                          ],
-                        ),
-                        Visibility(
-                            visible: contentLLoading,
-                            child: const Center(child: CircularProgressIndicator()))
-                      ],
-                    )),
+                            ],
+                          ),
+                          Visibility(
+                              visible: contentLLoading,
+                              child: const Center(child: CircularProgressIndicator()))
+                        ],
+                      ),
+            ),
+          ),
         ),
       ),
     );
