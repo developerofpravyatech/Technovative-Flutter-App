@@ -124,6 +124,13 @@ class LoginController extends GetxController {
             await gs.write(userIdSession, res["data"]["userId"]);
             await gs.write(hostUrlLoginSession, hostUrl);
 
+            final rawGpsFeature = res["data"]?["is_gps_feature"];
+            final bool isGpsFeature = rawGpsFeature == true ||
+                rawGpsFeature == 1 ||
+                rawGpsFeature?.toString().toLowerCase() == 'true';
+            await gs.write(isGpsFeatureSession, isGpsFeature);
+            debugPrint("Login response is_gps_feature: $isGpsFeature");
+
             // Resolve DB from API (needed for Odoo web session auth).
             String? db;
             final dbList = res["data"]?["db_list"];
@@ -162,11 +169,11 @@ class LoginController extends GetxController {
           debugPrint("Error: ${e?.message}");
           debugPrint("==========================================================");
           _stateStatusRx.value = StateStatus.FAILURE;
-          Get.showErrorSnackbar(e!.message);
+          showErrorSnackbar(e?.message);
         });
       } else {
         _stateStatusRx.value = StateStatus.FAILURE;
-        Get.showErrorSnackbar('No internet connect');
+        showErrorSnackbar('No internet connect');
       }
     });
   }
@@ -197,7 +204,7 @@ class LoginController extends GetxController {
       }
     }, error: (e) {
       _stateStatusRx.value = StateStatus.FAILURE;
-      Get.showErrorSnackbar(e!.message);
+      showErrorSnackbar(e?.message);
     });
   }
 

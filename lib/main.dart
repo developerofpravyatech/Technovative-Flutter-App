@@ -22,14 +22,6 @@ import 'package:dio/dio.dart';
 import 'dart:isolate';
 import 'package:geolocator/geolocator.dart';
 import 'package:permission_handler/permission_handler.dart';
-import 'package:background_locator_2/background_locator.dart';
-import 'package:background_locator_2/location_dto.dart';
-import 'package:background_locator_2/settings/android_settings.dart'
-    as androidSetting;
-import 'package:background_locator_2/settings/ios_settings.dart';
-import 'package:background_locator_2/settings/locator_settings.dart'
-    as LocationAccuracy;
-
 import 'dependency_injection.dart';
 import 'firebase_options.dart';
 import 'shared/background_location_disclosure.dart';
@@ -41,6 +33,14 @@ Future<void> _ensureFirebaseInitialized() async {
       options: DefaultFirebaseOptions.currentPlatform,
     );
   }
+}
+
+bool _isGpsFeatureEnabledGlobal() {
+  final rawGps = GetStorage().read(isGpsFeatureSession);
+  if (rawGps == null) return true;
+  return rawGps == true ||
+      rawGps == 1 ||
+      rawGps.toString().toLowerCase() == 'true';
 }
 
 Future<void> main() async {
@@ -79,7 +79,7 @@ class _MyAppState extends State<MyApp> {
 
   ReceivePort port = ReceivePort();
   bool? isRunning;
-  LocationDto? lastLocation;
+  dynamic lastLocation;
 
   @override
   void initState() {
@@ -102,22 +102,21 @@ class _MyAppState extends State<MyApp> {
   }
 
   Future<void> _initializeLocationServices() async {
+    if (!_isGpsFeatureEnabledGlobal()) {
+      debugPrint('is_gps_feature is false. Skipping location isolate setup.');
+      return;
+    }
     try {
-      // Set up isolate communication
-      if (IsolateNameServer.lookupPortByName(
-              LocationServiceRepository.isolateName) !=
-          null) {
-        IsolateNameServer.removePortNameMapping(
-            LocationServiceRepository.isolateName);
+      const isolateName = 'LocatorIsolate';
+      if (IsolateNameServer.lookupPortByName(isolateName) != null) {
+        IsolateNameServer.removePortNameMapping(isolateName);
       }
-      IsolateNameServer.registerPortWithName(
-          port.sendPort, LocationServiceRepository.isolateName);
+      IsolateNameServer.registerPortWithName(port.sendPort, isolateName);
       port.listen(
         (dynamic data) async {
           await updateUI(data);
         },
       );
-      // Initialize BackgroundLocator after a delay to ensure app is fully loaded
       Future.delayed(const Duration(seconds: 3), () {
         if (mounted) {
           initPlatformState();
@@ -125,7 +124,6 @@ class _MyAppState extends State<MyApp> {
       });
     } catch (e) {
       debugPrint('Error setting up location services: $e');
-      // Don't crash if this fails
     }
   }
 
@@ -178,60 +176,23 @@ class _MyAppState extends State<MyApp> {
   }
 
   Future<void> initPlatformState() async {
-    // Temporarily disable BackgroundLocator to prevent crashes
-    // TODO: Re-enable after fixing BackgroundLocator initialization issues
-    debugPrint('BackgroundLocator initialization skipped to prevent crashes');
-    return;
-
-    /* Commented out to prevent crashes - uncomment when BackgroundLocator is properly configured
-    try {
-      debugPrint('Initializing BackgroundLocator...');
-      // Wrap in try-catch with stack trace to see what's failing
-      await BackgroundLocator.initialize().catchError((error, stackTrace) {
-        debugPrint('BackgroundLocator.initialize() failed: $error');
-        debugPrint('StackTrace: $stackTrace');
-        // Don't rethrow - let the app continue
-        return null;
-      });
-      
-      // Only continue if initialization succeeded
-      if (await BackgroundLocator.isServiceRunning().catchError((e) {
-        debugPrint('Error checking if service is running: $e');
-        return false;
-      })) {
-        debugPrint('BackgroundLocator initialization done');
-        final _isRunning = await BackgroundLocator.isServiceRunning();
-        if (mounted) {
-          setState(() {
-            isRunning = _isRunning;
-          });
-        }
-        onStart();
-        debugPrint('Running ${isRunning.toString()}');
-      }
-    } catch (e, stackTrace) {
-      debugPrint('Error in initPlatformState: $e');
-      debugPrint('StackTrace: $stackTrace');
-      // Don't crash the app if BackgroundLocator fails
-      // The app should still work without background location
-    }
-    */
+    debugPrint('BackgroundLocator initialization skipped');
   }
 
   void onStart() async {
     if (await handleLocationPermission(context)) {
-      await _startLocator();
-      final _isRunning = await BackgroundLocator.isServiceRunning();
       setState(() {
-        isRunning = _isRunning;
+        isRunning = false;
         lastLocation = null;
       });
-    } else {
-      // show error
     }
   }
 
   Future<bool> handleLocationPermission([BuildContext? context]) async {
+    if (!_isGpsFeatureEnabledGlobal()) {
+      debugPrint('is_gps_feature is false. handleLocationPermission skipped.');
+      return false;
+    }
     bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
     if (!serviceEnabled) {
       // Notify the user to enable location services
@@ -298,58 +259,7 @@ class _MyAppState extends State<MyApp> {
     return false;
   }
 
-  Future<void> updateUI(dynamic data) async {
-    LocationDto? locationDto =
-        (data != null) ? LocationDto.fromJson(data) : null;
-    if (locationDto != null) {
-      await _updateNotificationText(locationDto);
-    }
-  }
-
-  Future<void> _updateNotificationText(LocationDto data) async {
-    if (data == null) {
-      print("data ===============> null");
-      return;
-    }
-    await BackgroundLocator.updateNotificationText(
-        title: "new location received",
-        msg: "${DateTime.now()}",
-        bigMsg: "${data.latitude}, ${data.longitude}");
-  }
-
-  // Main Code for location
-  Future<void> _startLocator() async {
-    Map<String, dynamic> data = {'countInit': 1};
-    return await BackgroundLocator.registerLocationUpdate(
-      LocationCallbackHandler.callback,
-      initCallback: LocationCallbackHandler.initCallback,
-      initDataCallback: data,
-      disposeCallback: LocationCallbackHandler.disposeCallback,
-      iosSettings: const IOSSettings(
-          accuracy: LocationAccuracy.LocationAccuracy.NAVIGATION,
-          distanceFilter: 0,
-          showsBackgroundLocationIndicator: true,
-          stopWithTerminate: false),
-      autoStop: false,
-      androidSettings: const androidSetting.AndroidSettings(
-        accuracy: LocationAccuracy.LocationAccuracy.NAVIGATION,
-        interval: 10,
-        wakeLockTime: 1000000000,
-        distanceFilter: 0,
-        client: androidSetting.LocationClient.google,
-        androidNotificationSettings: androidSetting.AndroidNotificationSettings(
-            notificationChannelName: 'Location tracking',
-            notificationIcon: "@mipmap/launcher_icon",
-            notificationTitle: 'Start Location Tracking',
-            notificationMsg: 'Track location in background',
-            notificationBigMsg:
-                'Background location is on to keep the app up-to-date with your location. This is required for main features to work properly when the app is not running.',
-            notificationIconColor: Colors.grey,
-            notificationTapCallback:
-                LocationCallbackHandler.notificationCallback),
-      ),
-    );
-  }
+  Future<void> updateUI(dynamic data) async {}
 
   // This widget is the root of your application.
   @override
@@ -369,6 +279,10 @@ class _MyAppState extends State<MyApp> {
 }
 
 Future<void> sendLatLong(double latitude, double longitude) async {
+  if (!_isGpsFeatureEnabledGlobal()) {
+    debugPrint('is_gps_feature is false. sendLatLong skipped.');
+    return;
+  }
   // Step 2: Check if location services are enabled
   bool isLocationServiceEnabled = await Geolocator.isLocationServiceEnabled();
   if (isLocationServiceEnabled) {
@@ -423,6 +337,7 @@ const String storedLocationsKey = 'storedLocations';
 
 // Send Lat Long Offline & Online
 Future<void> sendLatLongOfflineOnline(double latitude, double longitude) async {
+  if (!_isGpsFeatureEnabledGlobal()) return;
   // Step 1: Check for internet connection
   var connectivityResult = await (Connectivity().checkConnectivity());
   if (connectivityResult != ConnectivityResult.none) {
@@ -467,77 +382,4 @@ Future<void> _sendStoredLocations() async {
   }
 }
 
-@pragma('vm:entry-point')
-class LocationCallbackHandler {
-  @pragma('vm:entry-point')
-  static Future<void> initCallback(Map<dynamic, dynamic> params) async {
-    LocationServiceRepository myLocationCallbackRepository =
-        LocationServiceRepository();
-    await myLocationCallbackRepository.init(params);
-  }
 
-  @pragma('vm:entry-point')
-  static Future<void> disposeCallback() async {
-    LocationServiceRepository myLocationCallbackRepository =
-        LocationServiceRepository();
-    await myLocationCallbackRepository.dispose();
-  }
-
-  @pragma('vm:entry-point')
-  static Future<void> callback(LocationDto locationDto) async {
-    LocationServiceRepository myLocationCallbackRepository =
-        LocationServiceRepository();
-    await myLocationCallbackRepository.callback(locationDto);
-  }
-
-  @pragma('vm:entry-point')
-  static Future<void> notificationCallback() async {
-    print('*notificationCallback');
-  }
-}
-
-class LocationServiceRepository {
-  static LocationServiceRepository instance = LocationServiceRepository._();
-  LocationServiceRepository._();
-  factory LocationServiceRepository() {
-    return instance;
-  }
-  static const String isolateName = 'LocatorIsolate';
-  int _count = -1;
-  Future<void> init(Map<dynamic, dynamic> params) async {
-    print("*Init callback handler");
-    if (params.containsKey('countInit')) {
-      dynamic tmpCount = params['countInit'];
-      if (tmpCount is double) {
-        _count = tmpCount.toInt();
-      } else if (tmpCount is String) {
-        _count = int.parse(tmpCount);
-      } else if (tmpCount is int) {
-        _count = tmpCount;
-      } else {
-        _count = -2;
-      }
-    } else {
-      _count = 0;
-    }
-    print("$_count");
-    final SendPort? send = IsolateNameServer.lookupPortByName(isolateName);
-    send?.send(null);
-  }
-
-  Future<void> dispose() async {
-    print("*Dispose callback handler");
-    print("$_count");
-    final SendPort? send = IsolateNameServer.lookupPortByName(isolateName);
-    send?.send(null);
-  }
-
-  Future<void> callback(LocationDto locationDto) async {
-    print(
-        '======> $_count location in dart ===========> ${locationDto.toString()}');
-    // await sendLatLongOfflineOnline(locationDto.latitude, locationDto.longitude);
-    final SendPort? send = IsolateNameServer.lookupPortByName(isolateName);
-    send?.send(locationDto.toJson());
-    _count++;
-  }
-}

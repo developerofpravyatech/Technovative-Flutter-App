@@ -268,6 +268,12 @@ Future<void> enableIOSNotifications() async {
 }
 
 Future<void> _checkAndRequestLocationPermission(int userId, var action) async {
+  final rawGps = GetStorage().read(isGpsFeatureSession);
+  final isGpsFeature = rawGps == null ? true : (rawGps == true || rawGps == 1 || rawGps.toString().toLowerCase() == 'true');
+  if (!isGpsFeature) {
+    debugPrint("GPS feature disabled in NotificationServices. Skipping location request.");
+    return;
+  }
   bool locationPermissionGranted =
       await Geolocator.checkPermission() == LocationPermission.always ||
           await Geolocator.checkPermission() == LocationPermission.whileInUse;

@@ -84,7 +84,17 @@ class _DashboardScreenState extends State<DashboardScreen>
     }
   }
 
+  bool get _isGpsFeatureEnabled {
+    final box = GetStorage();
+    final rawGps = box.read(isGpsFeatureSession);
+    if (rawGps == null) return true;
+    return rawGps == true ||
+        rawGps == 1 ||
+        rawGps.toString().toLowerCase() == 'true';
+  }
+
   Future<void> _fetchCurrentLocation() async {
+    if (!_isGpsFeatureEnabled) return;
     if (isLocating) return;
     setState(() => isLocating = true);
     try {
@@ -115,6 +125,7 @@ class _DashboardScreenState extends State<DashboardScreen>
   }
 
   void _startLocationStream() async {
+    if (!_isGpsFeatureEnabled) return;
     try {
       bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
       LocationPermission permission = await Geolocator.checkPermission();
@@ -158,72 +169,70 @@ class _DashboardScreenState extends State<DashboardScreen>
   }
 
 
+  bool _isReauthenticating = false;
+
   Future<void> _injectOdooSessionAndLoad(
-      InAppWebViewController controller) async {
-    final box = GetStorage();
-    final host = box.read(hostUrlLoginSession)?.toString() ?? box.read(whostUrl)?.toString();
-    final login = box.read(userNameSession)?.toString();
-    final password = box.read(userPass)?.toString();
-    final db = box.read(odooDbSession)?.toString();
-    String? sessionId = box.read(odooSessionId)?.toString();
+      InAppWebViewController controller, {bool forceReauth = false}) async {
+    if (_isReauthenticating) return;
+    _isReauthenticating = true;
+    try {
+      final box = GetStorage();
+      String? host = box.read(hostUrlLoginSession)?.toString() ?? box.read(whostUrl)?.toString();
+      final login = box.read(userNameSession)?.toString();
+      final password = box.read(userPass)?.toString();
+      final db = box.read(odooDbSession)?.toString();
+      String? sessionId = box.read(odooSessionId)?.toString();
 
-    // Authenticate Odoo web session on cold start or if session ID is missing
-    if ((sessionId == null || sessionId.isEmpty) &&
-        host != null &&
-        host.isNotEmpty &&
-        login != null &&
-        password != null) {
-      final newSessionId = await OdooWebAuth.authenticate(
-        hostUrl: host,
-        db: db ?? '',
-        login: login,
-        password: password,
-      );
-      if (newSessionId != null && newSessionId.isNotEmpty) {
-        sessionId = newSessionId;
-        await box.write(odooSessionId, sessionId);
+      if (host == null || host.isEmpty) return;
+
+      // Clean host URL to root base URL without /web or /web/login
+      String baseHost = host.replaceAll(RegExp(r'/web(/login)?/?$'), '');
+      if (baseHost.endsWith('/')) {
+        baseHost = baseHost.substring(0, baseHost.length - 1);
       }
-    }
 
-    final target = widget.webHostUrl ??
-        (host != null && host.isNotEmpty ? (host.endsWith('/web') ? host : '$host/web') : null);
-
-    if (host != null &&
-        host.isNotEmpty &&
-        sessionId != null &&
-        sessionId.isNotEmpty) {
-      try {
-        final uri = Uri.parse(host);
-        final domain = uri.host;
-
-        // Set session_id cookie for host root
-        await CookieManager.instance().setCookie(
-          url: WebUri(host),
-          name: 'session_id',
-          value: sessionId,
-          domain: domain.isNotEmpty ? domain : null,
-          path: '/',
-          isHttpOnly: false,
-          isSecure: uri.scheme == 'https',
-        );
-
-        // Set session_id cookie for /web
-        await CookieManager.instance().setCookie(
-          url: WebUri('$host/web'),
-          name: 'session_id',
-          value: sessionId,
-          domain: domain.isNotEmpty ? domain : null,
-          path: '/',
-          isHttpOnly: false,
-          isSecure: uri.scheme == 'https',
-        );
-        debugPrint('Injected Odoo session_id cookie ($sessionId) for $host');
-      } catch (e) {
-        debugPrint('Failed to inject Odoo session cookie: $e');
+      // Re-authenticate Odoo web session if forced or if session ID is missing
+      if (forceReauth || sessionId == null || sessionId.isEmpty) {
+        if (login != null && password != null) {
+          final newSessionId = await OdooWebAuth.authenticate(
+            hostUrl: baseHost,
+            db: db ?? '',
+            login: login,
+            password: password,
+          );
+          if (newSessionId != null && newSessionId.isNotEmpty) {
+            sessionId = newSessionId;
+            await box.write(odooSessionId, sessionId);
+          }
+        }
       }
-    }
 
-    if (target != null && target.isNotEmpty) {
+      final target = (widget.webHostUrl != null && widget.webHostUrl!.isNotEmpty)
+          ? widget.webHostUrl!
+          : '$baseHost/web';
+
+      if (sessionId != null && sessionId.isNotEmpty) {
+        try {
+          final uri = Uri.parse(baseHost);
+          final domain = uri.host;
+
+          for (final path in ['/', '/web', '/web/login']) {
+            await CookieManager.instance().setCookie(
+              url: WebUri('$baseHost$path'),
+              name: 'session_id',
+              value: sessionId,
+              domain: domain.isNotEmpty ? domain : null,
+              path: '/',
+              isHttpOnly: false,
+              isSecure: uri.scheme == 'https',
+            );
+          }
+          debugPrint('Injected Odoo session_id cookie ($sessionId) for $baseHost');
+        } catch (e) {
+          debugPrint('Failed to inject Odoo session cookie: $e');
+        }
+      }
+
       final headers = <String, String>{};
       if (sessionId != null && sessionId.isNotEmpty) {
         headers['Cookie'] = 'session_id=$sessionId';
@@ -235,6 +244,8 @@ class _DashboardScreenState extends State<DashboardScreen>
           headers: headers.isNotEmpty ? headers : null,
         ),
       );
+    } finally {
+      _isReauthenticating = false;
     }
   }
 
@@ -247,12 +258,16 @@ class _DashboardScreenState extends State<DashboardScreen>
     final userId = box.read(userIdSession);
     showNativeDashboard = userId == 2 || userId == '2';
 
-    // Start background & location services
-    sendUserIdToNative(); 
-    checkServiceAndGpsStatus();
-    startBackgroundService();
-    _fetchCurrentLocation();
-    _startLocationStream();
+    // Start background & location services if GPS feature is enabled
+    if (_isGpsFeatureEnabled) {
+      sendUserIdToNative(); 
+      checkServiceAndGpsStatus();
+      startBackgroundService();
+      _fetchCurrentLocation();
+      _startLocationStream();
+    } else {
+      debugPrint("is_gps_feature is false: Skipping GPS tracking and permission requests.");
+    }
     _fetchOdooDashboardMetrics();
   }
 
@@ -267,9 +282,11 @@ class _DashboardScreenState extends State<DashboardScreen>
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     super.didChangeAppLifecycleState(state);
-    DozeModeService.handleLifecycleChange(state);
-    if (state == AppLifecycleState.resumed) {
-      checkServiceAndGpsStatus();
+    if (_isGpsFeatureEnabled) {
+      DozeModeService.handleLifecycleChange(state);
+      if (state == AppLifecycleState.resumed) {
+        checkServiceAndGpsStatus();
+      }
     }
   }
 
@@ -350,6 +367,7 @@ class _DashboardScreenState extends State<DashboardScreen>
   }
 
   startBackgroundService() async {
+    if (!_isGpsFeatureEnabled) return;
     // Only on Android
     if (!Platform.isAndroid) {
       debugPrint("startBackgroundService: Skipped on non-Android platform");
@@ -467,6 +485,15 @@ class _DashboardScreenState extends State<DashboardScreen>
   }
 
   Future<void> _handleServiceToggle() async {
+    if (!_isGpsFeatureEnabled) {
+      Get.snackbar(
+        'GPS Feature Disabled',
+        'GPS tracking feature is disabled for your account.',
+        snackPosition: SnackPosition.BOTTOM,
+      );
+      return;
+    }
+
     if (isServiceStarted) {
       final stopped = await stopLocationService();
       if (mounted) {
@@ -566,6 +593,34 @@ class _DashboardScreenState extends State<DashboardScreen>
     );
   }
 
+  Future<void> _performLogoutCleanup() async {
+    try {
+      await stopLocationService();
+    } catch (e) {
+      debugPrint("Error stopping location service on logout: $e");
+    }
+    DozeModeService.stopListening();
+    try {
+      await CookieManager.instance().deleteAllCookies();
+    } catch (e) {
+      debugPrint("Error clearing cookies on logout: $e");
+    }
+
+    final box = GetStorage();
+    await box.remove(isLoginSession);
+    await box.remove(userNameSession);
+    await box.remove(userPass);
+    await box.remove(userIdSession);
+    await box.remove(hostUrlLoginSession);
+    await box.remove(whostUrl);
+    await box.remove(isNativeAnalyticsSession);
+    await box.remove(odooSessionId);
+    await box.remove(odooDbSession);
+    await box.remove(isGpsFeatureSession);
+
+    Get.offAllNamed(AppRoute.login);
+  }
+
   Future<void> _handleLogout() async {
     final confirmed = await Get.dialog<bool>(
       Dialog(
@@ -604,14 +659,7 @@ class _DashboardScreenState extends State<DashboardScreen>
     );
 
     if (confirmed == true) {
-      final box = GetStorage();
-      await box.remove(isLoginSession);
-      await box.remove(userNameSession);
-      await box.remove(userPass);
-      await box.remove(userIdSession);
-      await box.remove(isNativeAnalyticsSession);
-      await box.remove(odooSessionId);
-      Get.offAllNamed(AppRoute.login);
+      await _performLogoutCleanup();
     }
   }
 
@@ -1357,6 +1405,10 @@ class _DashboardScreenState extends State<DashboardScreen>
                                     var uri = navigationAction.request.url!;
                                     debugPrint(
                                         "url = > ${navigationAction.request.url}");
+                                    if (uri.path.contains('/web/session/logout')) {
+                                      await _performLogoutCleanup();
+                                      return NavigationActionPolicy.CANCEL;
+                                    }
                                     if (uri.scheme == 'tel' || uri.scheme == 'whatsapp' || uri.scheme == 'mailto') {
                                       await launchUrl(uri);
                                       return NavigationActionPolicy.CANCEL;
@@ -1387,31 +1439,30 @@ class _DashboardScreenState extends State<DashboardScreen>
                                     debugPrint("WebView started loading: $url");
                                     setState(() => contentLLoading = true);
                                   },
-                                  onLoadStop: (controller, url) {
+                                  onLoadStop: (controller, url) async {
                                     debugPrint("WebView finished loading: $url");
-                                    setState(() => contentLLoading = false);
+                                    final box = GetStorage();
+                                    final isLoggedIn = box.read(isLoginSession) == true;
+                                    if (!isLoggedIn) {
+                                      await _performLogoutCleanup();
+                                      return;
+                                    }
+                                    if (url != null && url.toString().contains('/web/login')) {
+                                      debugPrint("WebView arrived at /web/login. Automatically authenticating session...");
+                                      await _injectOdooSessionAndLoad(controller, forceReauth: true);
+                                    } else {
+                                      if (mounted) setState(() => contentLLoading = false);
+                                    }
                                   },
                                   onReceivedError: (controller, request, error) {
                                     debugPrint("WebView error: ${error.description}");
-                                    setState(() => contentLLoading = false);
+                                    if (mounted) setState(() => contentLLoading = false);
                                   },
                                   onReceivedHttpError: (controller, request, response) {
                                     debugPrint(
                                         "WebView HTTP error: ${response.statusCode}");
-                                    setState(() => contentLLoading = false);
+                                    if (mounted) setState(() => contentLLoading = false);
                                   },
-                                  initialUrlRequest: URLRequest(
-                                      url: WebUri.uri(Uri.parse(() {
-                                    final box = GetStorage();
-                                    final host = box.read(hostUrlLoginSession)?.toString() ?? box.read(whostUrl)?.toString();
-                                    if (widget.webHostUrl != null && widget.webHostUrl!.isNotEmpty) {
-                                      return widget.webHostUrl!;
-                                    }
-                                    if (host != null && host.isNotEmpty) {
-                                      return host.endsWith('/web') ? host : '$host/web';
-                                    }
-                                    return 'https://iosapp.teknovatecrm.in/web';
-                                  }()))),
                                   initialSettings: InAppWebViewSettings(
                                       allowsBackForwardNavigationGestures: true,
                                       enableViewportScale: true,

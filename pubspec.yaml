@@ -38,7 +38,6 @@ dependencies:
   location: ^6.0.1
   geolocator: ^10.0.0
   geocoding: ^3.0.0
-  background_locator_2: 
   intl: ^0.18.1
 
 dev_dependencies:

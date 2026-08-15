@@ -14,7 +14,7 @@ extension ScreenSizeResolutionDouble on double {
 
   dynamicWidth() {
     double originalWidth = 375;
-    double currentWidth = Get.height;
+    double currentWidth = Get.width;
     double givenWidth = this;
     double calculatedWidth = 0;
     calculatedWidth = ((currentWidth * givenWidth) / originalWidth);
@@ -34,7 +34,7 @@ extension ScreenSizeResolutionInt on int {
 
   dynamicWidth() {
     double originalWidth = 375;
-    double currentWidth = Get.height;
+    double currentWidth = Get.width;
     int givenWidth = this;
     double calculatedWidth = 0;
     calculatedWidth = ((currentWidth * givenWidth) / originalWidth);

@@ -2,7 +2,9 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:geolocator/geolocator.dart';
+import 'package:get_storage/get_storage.dart';
 import 'package:permission_handler/permission_handler.dart';
+import 'resources/session_string.dart';
 
 class DozeModeService {
   static const MethodChannel _channel =
@@ -61,6 +63,13 @@ class DozeModeService {
   /// Check if service is running and restart if needed
   static Future<void> _checkAndRestartService() async {
     try {
+      final rawGps = GetStorage().read(isGpsFeatureSession);
+      final isGpsFeature = rawGps == null ? true : (rawGps == true || rawGps == 1 || rawGps.toString().toLowerCase() == 'true');
+      if (!isGpsFeature) {
+        debugPrint('DozeModeService: is_gps_feature is false, skipping service check');
+        return;
+      }
+
       // Check if location permission is granted
       final locationPermission = await Permission.location.status;
       if (!locationPermission.isGranted) {

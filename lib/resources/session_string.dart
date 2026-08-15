@@ -20,6 +20,7 @@ const String hostUrlLoginSession = 'hostUrlLoginSession';
 const String whostUrl = 'hostUrl',userPass='password';
 const String odooSessionId = 'odooSessionId';
 const String odooDbSession = 'odooDb';
+const String isGpsFeatureSession = 'isGpsFeature';
 
 //const userId = 'AzrSaqQHokT0hApBfxGiUe6Bn0m2';
 
