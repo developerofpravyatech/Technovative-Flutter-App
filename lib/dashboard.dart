@@ -1356,12 +1356,14 @@ class _DashboardScreenState extends State<DashboardScreen>
 
   @override
   Widget build(BuildContext context) {
-    SystemChrome.setSystemUIOverlayStyle(const SystemUiOverlayStyle(
-        statusBarColor: Color(0xff024950),
-        statusBarIconBrightness: Brightness.light,
-        statusBarBrightness: Brightness.dark));
+    SystemChrome.setSystemUIOverlayStyle(SystemUiOverlayStyle(
+        statusBarColor: showNativeDashboard ? Colors.white : const Color(0xff024950),
+        statusBarIconBrightness: showNativeDashboard ? Brightness.dark : Brightness.light,
+        statusBarBrightness: showNativeDashboard ? Brightness.light : Brightness.dark,
+        systemNavigationBarColor: showNativeDashboard ? Colors.white : const Color(0xff024950),
+        systemNavigationBarIconBrightness: showNativeDashboard ? Brightness.dark : Brightness.light));
     return Container(
-      color: const Color(0xff024950),
+      color: showNativeDashboard ? Colors.white : const Color(0xff024950),
       child: SafeArea(
         child: UpgradeAlert(
           upgrader: Upgrader(
@@ -1387,7 +1389,7 @@ class _DashboardScreenState extends State<DashboardScreen>
               return false;
             }, 
             child: Scaffold(
-                backgroundColor: showNativeDashboard ? const Color(0xffF4F7FE) : const Color(0xff024950),
+                backgroundColor: showNativeDashboard ? Colors.white : const Color(0xff024950),
                 body: showNativeDashboard
                     ? _buildNativeDashboardAnalytics(context)
                     : Stack(

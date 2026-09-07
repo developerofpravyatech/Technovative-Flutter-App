@@ -361,8 +361,10 @@ Future<void> sendLocation(
     double latitude, double longitude, partnerId, action) async {
   final Dio dio = Dio();
   String url = '${GetStorage().read(hostUrlLoginSession)}/geo/update';
+  final sessionId = GetStorage().read(odooSessionId);
   var headers = {
-    'Cookie': 'session_id=c5a7fe5af5aa4b5940c4365a1592702650a6fed8'
+    if (sessionId != null && sessionId.toString().isNotEmpty)
+      'Cookie': 'session_id=$sessionId'
   };
   final Map<String, dynamic> data = {
     "latitude": latitude,
@@ -397,8 +399,10 @@ Future<void> crmModuleSendLocation(
   final Dio dio = Dio();
   String url =
       '${GetStorage().read(hostUrlLoginSession)}/geo/activity/crm/update';
+  final sessionId = GetStorage().read(odooSessionId);
   var headers = {
-    'Cookie': 'session_id=c5a7fe5af5aa4b5940c4365a1592702650a6fed8'
+    if (sessionId != null && sessionId.toString().isNotEmpty)
+      'Cookie': 'session_id=$sessionId'
   };
   final Map<String, dynamic> data = {
     "latitude": latitude,
@@ -433,8 +437,10 @@ Future<void> contactModuleSendLocation(
   final Dio dio = Dio();
   String url =
       '${GetStorage().read(hostUrlLoginSession)}/geo/activity/contact/update';
+  final sessionId = GetStorage().read(odooSessionId);
   var headers = {
-    'Cookie': 'session_id=c5a7fe5af5aa4b5940c4365a1592702650a6fed8'
+    if (sessionId != null && sessionId.toString().isNotEmpty)
+      'Cookie': 'session_id=$sessionId'
   };
   final Map<String, dynamic> data = {
     "latitude": latitude,

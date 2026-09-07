@@ -102,13 +102,14 @@ class LoginController extends GetxController {
         // }
         var hostUrl = "$hostString${urlController.text.trim()}";
 
+        final existingSession = storageRepository.read(odooSessionId);
         apiRepository.getApi("$hostUrl/users", queryParameters: {
           "login": userController.text.trim(),
           "player_id": (fCMToken?.trim() ?? "123"),
           "password": passController.text.trim()
-        }, headers: {
-          'Cookie': 'session_id=c5a7fe5af5aa4b5940c4365a1592702650a6fed8'
-        }, success: (response) async {
+        }, headers: (existingSession != null && existingSession.toString().isNotEmpty)
+            ? {'Cookie': 'session_id=$existingSession'}
+            : null, success: (response) async {
           // Keep LOADING until navigation (includes Odoo web session auth).
           debugPrint("================ LOGIN API SUCCESS RESPONSE ================");
           debugPrint(response.toString());
@@ -182,9 +183,11 @@ class LoginController extends GetxController {
     print("object");
     _stateStatusRx.value = StateStatus.LOADING;
     var hostUrl = "$hostString${urlController.text.trim()}";
-    apiRepository.getApi("$hostUrl/db", headers: {
-      'Cookie': 'session_id=c5a7fe5af5aa4b5940c4365a1592702650a6fed8'
-    }, success: (response) async {
+    final existingSession = storageRepository.read(odooSessionId);
+    apiRepository.getApi("$hostUrl/db",
+        headers: (existingSession != null && existingSession.toString().isNotEmpty)
+            ? {'Cookie': 'session_id=$existingSession'}
+            : null, success: (response) async {
       _stateStatusRx.value = StateStatus.SUCCESS;
       //var result = LoginResponseEntity.fromJson(response);
       dynamic res = jsonDecode(response.toString());
